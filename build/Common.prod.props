@@ -6,35 +6,48 @@
     <RepositoryUrl>https://github.com/open-telemetry/opentelemetry-dotnet-contrib</RepositoryUrl>
     <PackageProjectUrl>https://OpenTelemetry.io</PackageProjectUrl>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageIcon>opentelemetry-icon-color.png</PackageIcon>
-    <Authors>OpenTelemetry authors</Authors>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackagePrimaryLicenseFile>$(RepoRoot)\LICENSE.TXT</PackagePrimaryLicenseFile>
+    <PackageIcon>opentelemetry-icon-color.png</PackageIcon>
+    <Authors>OpenTelemetry Authors</Authors>
+    <Copyright>Copyright The OpenTelemetry Authors</Copyright>
     <CodeAnalysisRuleSet>$(MSBuildThisFileDirectory)/OpenTelemetryContrib.prod.ruleset</CodeAnalysisRuleSet>
-    <NoWarn>$(NoWarn),1573,1712</NoWarn>
+    <NoWarn>$(NoWarn);1573;1712</NoWarn>
     <PackageOutputPath Condition="$(Build_ArtifactStagingDirectory) != ''">$(Build_ArtifactStagingDirectory)</PackageOutputPath>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!--<MinVerVerbosity>detailed</MinVerVerbosity>-->
     <PackageTags>Observability;OpenTelemetry;Monitoring;Telemetry</PackageTags>
+    <EnablePackageValidation Condition="'$(EnablePackageValidation)' == ''">false</EnablePackageValidation>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)opentelemetry-icon-color.png" Pack="true" PackagePath="\"/>
-
-    <PackageReference Include="MinVer" Version="$(MinVerPkgVer)" Condition="'$(IntegrationBuild)' != 'true'">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="$(MicrosoftPublicApiAnalyzersPkgVer)" Condition=" $(OS) == 'Windows_NT' and '$(EnablePublicApi)'!='false'" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="$(MinVerPkgVer)" PrivateAssets="All" Condition="'$(IntegrationBuild)' != 'true'" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="$(MicrosoftSourceLinkGitHubPkgVer)" PrivateAssets="All" Condition="'$(IntegrationBuild)' != 'true'" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="$(MicrosoftPublicApiAnalyzersPkgVer)" PrivateAssets="All" Condition="'$(EnablePublicApi)' != 'false'" />
   </ItemGroup>
 
   <Target Name="AssemblyVersionTarget" AfterTargets="MinVer" Condition="'$(MinVerVersion)'!=''">
+    <!-- Note: $(BuildNumber) is typically only set for builds initiated by the
+    publish workflow. -->
     <PropertyGroup>
-      <RevisionNumber>0</RevisionNumber>
-      <RevisionNumber Condition="$(MinVerVersion.Split(`.`).Length) == 4">$(MinVerVersion.Split(`.`)[3])</RevisionNumber>
+      <RevisionNumber>$(BuildNumber)</RevisionNumber>
+      <RevisionNumber Condition="'$(BuildNumber)' == ''">0</RevisionNumber>
       <AssemblyVersion>$(MinVerMajor).$(MinVerMinor).$(MinVerPatch).$(RevisionNumber)</AssemblyVersion>
       <Version>$(MinVerMajor).$(MinVerMinor).$(MinVerPatch).$(RevisionNumber)</Version>
       <FileVersion>$(MinVerMajor).$(MinVerMinor).$(MinVerPatch).$(RevisionNumber)</FileVersion>
+
+      <!-- Note: If MinVerVersion is set to the default value we disable
+      PackageValidation because this most likely means we are running on a fork
+      without a valid tag to use for versioning and it will fail. -->
+      <EnablePackageValidation Condition="$(MinVerVersion.StartsWith('0.0.0-alpha.0'))">false</EnablePackageValidation>
     </PropertyGroup>
+
+    <!-- Note: The '$(TargetFramework)' != '' check here is to reduce log spam
+    in builds like dotnet pack which fire MinVer but don't resolve the actual
+    TargetFramework -->
+    <Message
+      Condition="'$(TargetFramework)' != '' AND '$(BuildNumber)' != ''"
+      Importance="high"
+      Text="**AssemblyVersionDebug** TargetFramework: $(TargetFramework), MinVerVersion: $(MinVerVersion), BuildNumber: $(BuildNumber), AssemblyVersion: $(AssemblyVersion), FileVersion: $(FileVersion)" />
   </Target>
 
   <PropertyGroup Label="SourceLink">
@@ -44,20 +57,31 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(Deterministic)'=='true'">
-    <SourceRoot Include="$(MSBuildThisFileDirectory)/"/>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)opentelemetry-icon-color.png" Pack="true" PackagePath="\"/>
+    <SourceRoot Include="$(MSBuildThisFileDirectory)/" Condition="'$(Deterministic)' == 'true'" />
+    <!-- Note: This includes all the PublicApiAnalyzers files in projects to make editing easier in the IDE -->
+    <None Include=".publicApi\**\PublicAPI.*.txt" Condition="'$(EnablePublicApi)' != 'false'" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(Deterministic)'=='true'">
+  <PropertyGroup Condition="'$(Deterministic)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <!--PublicApi Analyzer-->
-  <ItemGroup Condition="'$(EnablePublicApi)'!='false'">
-    <AdditionalFiles Include=".publicApi\$(TargetFramework)\PublicAPI.Shipped.txt" />
-    <AdditionalFiles Include=".publicApi\$(TargetFramework)\PublicAPI.Unshipped.txt" />
-    <None Include=".publicApi\*\PublicAPI.Shipped.txt" />
-    <None Include=".publicApi\*\PublicAPI.Unshipped.txt" />
-  </ItemGroup>
+  <Target Name="EnsurePackageValidationBaselineVersion"
+          BeforeTargets="RunPackageValidation"
+          Condition="'$(DisablePackageBaselineValidation)' != 'true' AND '$(PackageValidationBaselineVersion)' == '' AND '$(MinVerTagPrefix)' != 'coreunstable-'">
+    <Error Text="Cannot perform package validation without a baseline package version." />
+  </Target>
+
+  <Target Name="ResolvePublicApiFiles"
+          BeforeTargets="CoreCompile"
+          Condition="'$(EnablePublicApi)' != 'false'">
+    <ItemGroup>
+      <!-- Note: This resolves all the PublicApiAnalyzers files which are actually used by the analyzer -->
+      <AdditionalFiles Include=".publicApi\PublicAPI.*.txt" />
+      <AdditionalFiles Include=".publicApi\$(TargetFramework)\PublicAPI.*.txt" />
+    </ItemGroup>
+  </Target>
 
 </Project>

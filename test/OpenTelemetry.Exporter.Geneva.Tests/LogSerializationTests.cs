@@ -1,30 +1,14 @@
-// <copyright file="LogSerializationTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
-using System.IO;
+#nullable disable
+
 using System.Net.Sockets;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Threading;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Exporter.Geneva.MsgPack;
 using OpenTelemetry.Logs;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace OpenTelemetry.Exporter.Geneva.Tests;
 
@@ -32,15 +16,8 @@ public class LogSerializationTests
 {
     /*
     Run from the current directory:
-    dotnet test -f net6.0 --filter FullyQualifiedName~LogSerializationTests -l "console;verbosity=detailed"
+    dotnet test -f net8.0 --filter FullyQualifiedName~LogSerializationTests -l "console;verbosity=detailed"
     */
-    private readonly ITestOutputHelper output;
-
-    public LogSerializationTests(ITestOutputHelper output)
-    {
-        this.output = output;
-    }
-
     [Fact]
     public void SerializationTestForException()
     {
@@ -98,18 +75,10 @@ public class LogSerializationTests
         // PrintFields(this.output, exportedFields);
     }
 
-    private static void PrintFields(ITestOutputHelper output, Dictionary<object, object> fields)
-    {
-        foreach (var field in fields)
-        {
-            output.WriteLine($"{field.Key}:{field.Value}");
-        }
-    }
-
     private static Dictionary<object, object> GetExportedFieldsAfterLogging(Action<ILogger> doLog, Action<GenevaExporterOptions> configureGeneva = null)
     {
         Socket server = null;
-        string path = string.Empty;
+        var path = string.Empty;
         try
         {
             var logRecordList = new List<LogRecord>();
@@ -142,9 +111,8 @@ public class LogSerializationTests
             configureGeneva?.Invoke(exporterOptions);
 
             using var exporter = new MsgPackLogExporter(exporterOptions);
-            var m_buffer = typeof(MsgPackLogExporter).GetField("m_buffer", BindingFlags.NonPublic | BindingFlags.Static).GetValue(exporter) as ThreadLocal<byte[]>;
             _ = exporter.SerializeLogRecord(logRecordList[0]);
-            object fluentdData = MessagePack.MessagePackSerializer.Deserialize<object>(m_buffer.Value, MessagePack.Resolvers.ContractlessStandardResolver.Instance);
+            var fluentdData = MessagePack.MessagePackSerializer.Deserialize<object>(MsgPackLogExporter.Buffer.Value, MessagePack.Resolvers.ContractlessStandardResolver.Options);
 
             return GetFields(fluentdData);
         }
@@ -165,7 +133,7 @@ public class LogSerializationTests
     {
         while (true)
         {
-            string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             if (!File.Exists(path))
             {
                 return path;
@@ -192,7 +160,7 @@ public class LogSerializationTests
 
     private class MyException : Exception
     {
-        private string stackTrace;
+        private readonly string stackTrace;
 
         public MyException(string message, string stackTrace)
         : base(message)

@@ -1,35 +1,20 @@
-// <copyright file="ProcessMetrics.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-#nullable enable
-
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Reflection;
+using OpenTelemetry.Internal;
 using Diagnostics = System.Diagnostics;
 
 namespace OpenTelemetry.Instrumentation.Process;
 
 internal sealed class ProcessMetrics
 {
-    internal static readonly AssemblyName AssemblyName = typeof(ProcessMetrics).Assembly.GetName();
+    internal static readonly Assembly Assembly = typeof(ProcessMetrics).Assembly;
+    internal static readonly AssemblyName AssemblyName = Assembly.GetName();
     internal static readonly string MeterName = AssemblyName.Name;
 
-    private static readonly Meter MeterInstance = new(MeterName, AssemblyName.Version.ToString());
+    private static readonly Meter MeterInstance = new(MeterName, Assembly.GetPackageVersion());
 
     static ProcessMetrics()
     {
@@ -37,29 +22,31 @@ internal sealed class ProcessMetrics
             "process.memory.usage",
             () =>
             {
-                return Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+                using var process = Diagnostics.Process.GetCurrentProcess();
+                return process.WorkingSet64;
             },
             unit: "By",
-            description: "The amount of physical memory allocated for this process.");
+            description: "The amount of physical memory in use.");
 
         MeterInstance.CreateObservableUpDownCounter(
             "process.memory.virtual",
             () =>
             {
-                return Diagnostics.Process.GetCurrentProcess().VirtualMemorySize64;
+                using var process = Diagnostics.Process.GetCurrentProcess();
+                return process.VirtualMemorySize64;
             },
             unit: "By",
-            description: "The amount of committed virtual memory for this process.");
+            description: "The amount of committed virtual memory.");
 
         MeterInstance.CreateObservableCounter(
             "process.cpu.time",
             () =>
             {
-                var process = Diagnostics.Process.GetCurrentProcess();
+                using var process = Diagnostics.Process.GetCurrentProcess();
                 return new[]
                 {
-                    new Measurement<double>(process.UserProcessorTime.TotalSeconds, new KeyValuePair<string, object?>("state", "user")),
-                    new Measurement<double>(process.PrivilegedProcessorTime.TotalSeconds, new KeyValuePair<string, object?>("state", "system")),
+                    new Measurement<double>(process.UserProcessorTime.TotalSeconds, new KeyValuePair<string, object?>("process.cpu.state", "user")),
+                    new Measurement<double>(process.PrivilegedProcessorTime.TotalSeconds, new KeyValuePair<string, object?>("process.cpu.state", "system")),
                 };
             },
             unit: "s",
@@ -75,16 +62,13 @@ internal sealed class ProcessMetrics
             description: "The number of processors (CPU cores) available to the current process.");
 
         MeterInstance.CreateObservableUpDownCounter(
-            "process.threads",
+            "process.thread.count",
             () =>
             {
-                return Diagnostics.Process.GetCurrentProcess().Threads.Count;
+                using var process = Diagnostics.Process.GetCurrentProcess();
+                return process.Threads.Count;
             },
-            unit: "{threads}",
+            unit: "{thread}",
             description: "Process threads count.");
-    }
-
-    public ProcessMetrics(ProcessInstrumentationOptions options)
-    {
     }
 }

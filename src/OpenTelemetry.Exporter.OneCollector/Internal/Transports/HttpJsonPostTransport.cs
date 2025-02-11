@@ -1,22 +1,12 @@
-// <copyright file="HttpJsonPostTransport.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
+#if NETFRAMEWORK
+using System.Net.Http;
+#endif
 using System.Net.Http.Headers;
 using OpenTelemetry.Internal;
 
@@ -27,18 +17,19 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
     private static readonly string SdkVersion = $"OTel-{Environment.OSVersion.Platform}-.net-{typeof(OneCollectorExporter<>).Assembly.GetName()?.Version?.ToString() ?? "0.0.0"}";
     private static readonly string UserAgent = $".NET/{Environment.Version} HttpClient";
 
-    private readonly CallbackManager<OneCollectorExporterPayloadTransmittedCallbackAction> payloadTransmittedCallbacks = new();
+    private readonly CallbackManager<OneCollectorExporterPayloadTransmittedCallbackAction> payloadTransmittedSuccessCallbacks = new();
+    private readonly CallbackManager<OneCollectorExporterPayloadTransmittedCallbackAction> payloadTransmittedFailureCallbacks = new();
     private readonly Uri endpoint;
     private readonly string instrumentationKey;
     private readonly OneCollectorExporterHttpTransportCompressionType compressionType;
-    private readonly HttpClient httpClient;
+    private readonly IHttpClient httpClient;
     private MemoryStream? buffer;
 
     public HttpJsonPostTransport(
         string instrumentationKey,
         Uri endpoint,
         OneCollectorExporterHttpTransportCompressionType compressionType,
-        HttpClient httpClient)
+        IHttpClient httpClient)
     {
         Debug.Assert(!string.IsNullOrWhiteSpace(instrumentationKey), "instrumentationKey was null or whitespace");
         Debug.Assert(endpoint != null, "endpoint was null");
@@ -56,15 +47,25 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
 
     public void Dispose()
     {
-        this.payloadTransmittedCallbacks.Dispose();
+        this.payloadTransmittedSuccessCallbacks.Dispose();
+        this.payloadTransmittedFailureCallbacks.Dispose();
         this.buffer?.Dispose();
     }
 
-    public IDisposable RegisterPayloadTransmittedCallback(OneCollectorExporterPayloadTransmittedCallbackAction callback)
+    public IDisposable RegisterPayloadTransmittedCallback(OneCollectorExporterPayloadTransmittedCallbackAction callback, bool includeFailures)
     {
         Guard.ThrowIfNull(callback);
 
-        return this.payloadTransmittedCallbacks.Add(callback);
+        var successRegistration = this.payloadTransmittedSuccessCallbacks.Add(callback);
+
+        if (!includeFailures)
+        {
+            return successRegistration;
+        }
+
+        var failureRegistration = this.payloadTransmittedFailureCallbacks.Add(callback);
+
+        return new TranmissionCallbackWrapper(successRegistration, failureRegistration);
     }
 
     public bool Send(in TransportSendRequest sendRequest)
@@ -97,47 +98,61 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
             request.Headers.TryAddWithoutValidation("sdk-version", SdkVersion);
             request.Headers.TryAddWithoutValidation("x-apikey", this.instrumentationKey);
 
-            bool logResponseDetails = OneCollectorExporterEventSource.Log.IsInformationalLoggingEnabled();
+            var infoLoggingEnabled = OneCollectorExporterEventSource.Log.IsInformationalLoggingEnabled();
 
-            if (!logResponseDetails)
+            if (!infoLoggingEnabled)
             {
                 request.Headers.TryAddWithoutValidation("NoResponseBody", "true");
             }
 
-#if NET6_0_OR_GREATER
-            using var response = this.httpClient.Send(request, CancellationToken.None);
-#else
-            using var response = this.httpClient.SendAsync(request, CancellationToken.None).GetAwaiter().GetResult();
-#endif
+            using var response = this.httpClient.Send(
+                request,
+                infoLoggingEnabled ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead,
+                CancellationToken.None);
 
-            try
+            if (response.IsSuccessStatusCode)
             {
-                response.EnsureSuccessStatusCode();
+                if (infoLoggingEnabled)
+                {
+                    OneCollectorExporterEventSource.Log.TransportDataSent(
+                        sendRequest.ItemType, sendRequest.NumberOfItems, this.Description);
+                }
 
-                OneCollectorExporterEventSource.Log.WriteTransportDataSentEventIfEnabled(sendRequest.ItemType, sendRequest.NumberOfItems, this.Description);
-
-                var root = this.payloadTransmittedCallbacks.Root;
+                var root = this.payloadTransmittedSuccessCallbacks.Root;
                 if (root != null)
                 {
                     this.InvokePayloadTransmittedCallbacks(
                         root,
                         streamStartingPosition,
-                        in sendRequest);
+                        in sendRequest,
+                        succeeded: true);
                 }
 
                 return true;
             }
-            catch
+            else
             {
                 response.Headers.TryGetValues("Collector-Error", out var collectorErrors);
 
-                var errorDetails = logResponseDetails ? response.Content.ReadAsStringAsync().GetAwaiter().GetResult() : null;
+                var errorDetails = infoLoggingEnabled
+                    ? response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    : null;
 
                 OneCollectorExporterEventSource.Log.WriteHttpTransportErrorResponseReceivedEventIfEnabled(
                     this.Description,
                     (int)response.StatusCode,
                     collectorErrors,
                     errorDetails);
+
+                var root = this.payloadTransmittedFailureCallbacks.Root;
+                if (root != null)
+                {
+                    this.InvokePayloadTransmittedCallbacks(
+                        root,
+                        streamStartingPosition,
+                        in sendRequest,
+                        succeeded: false);
+                }
 
                 return false;
             }
@@ -146,11 +161,21 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
         {
             OneCollectorExporterEventSource.Log.WriteTransportExceptionThrownEventIfEnabled(this.Description, ex);
 
+            var root = this.payloadTransmittedFailureCallbacks.Root;
+            if (root != null)
+            {
+                this.InvokePayloadTransmittedCallbacks(
+                    root,
+                    streamStartingPosition,
+                    in sendRequest,
+                    succeeded: false);
+            }
+
             return false;
         }
     }
 
-    private HttpContent BuildRequestContent(Stream stream)
+    private NonDisposingStreamContent BuildRequestContent(Stream stream)
     {
         switch (this.compressionType)
         {
@@ -189,7 +214,8 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
     private void InvokePayloadTransmittedCallbacks(
         OneCollectorExporterPayloadTransmittedCallbackAction callback,
         long streamStartingPosition,
-        in TransportSendRequest sendRequest)
+        in TransportSendRequest sendRequest,
+        bool succeeded)
     {
         var stream = sendRequest.ItemStream;
 
@@ -204,7 +230,8 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
                     sendRequest.ItemSerializationFormat,
                     stream,
                     OneCollectorExporterTransportProtocolType.HttpJsonPost,
-                    this.endpoint));
+                    this.endpoint,
+                    succeeded));
         }
         catch (Exception ex)
         {
@@ -213,6 +240,26 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
         finally
         {
             stream.Position = currentPosition;
+        }
+    }
+
+    private sealed class TranmissionCallbackWrapper : IDisposable
+    {
+        private readonly IDisposable successRegistration;
+        private readonly IDisposable failureRegistration;
+
+        public TranmissionCallbackWrapper(
+            IDisposable successRegistration,
+            IDisposable failureRegistration)
+        {
+            this.successRegistration = successRegistration;
+            this.failureRegistration = failureRegistration;
+        }
+
+        public void Dispose()
+        {
+            this.successRegistration.Dispose();
+            this.failureRegistration.Dispose();
         }
     }
 
@@ -236,7 +283,7 @@ internal sealed class HttpJsonPostTransport : ITransport, IDisposable
             return true;
         }
 
-#if NET6_0_OR_GREATER
+#if NET
         protected override void SerializeToStream(Stream stream, TransportContext? context, CancellationToken cancellationToken)
         {
             this.stream.CopyTo(stream);

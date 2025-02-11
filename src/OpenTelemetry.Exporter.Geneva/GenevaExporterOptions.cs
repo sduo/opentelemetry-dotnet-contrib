@@ -1,44 +1,54 @@
-// <copyright file="GenevaExporterOptions.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Text;
 using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Exporter.Geneva;
 
+/// <summary>
+/// Contains Geneva exporter options.
+/// </summary>
 public class GenevaExporterOptions
 {
-    private IReadOnlyDictionary<string, object> _fields = new Dictionary<string, object>(1)
+    private IReadOnlyDictionary<string, object> fields = new Dictionary<string, object>(1)
     {
         [Schema.V40.PartA.Ver] = "4.0",
     };
 
-    private IReadOnlyDictionary<string, string> _tableNameMappings;
+    private IReadOnlyDictionary<string, string>? tableNameMappings;
 
-    public string ConnectionString { get; set; }
+    /// <summary>
+    /// Gets or sets the connection string.
+    /// </summary>
+    public string? ConnectionString { get; set; }
 
-    public IEnumerable<string> CustomFields { get; set; }
+    /// <summary>
+    /// Gets or sets custom fields.
+    /// </summary>
+    public IEnumerable<string>? CustomFields { get; set; }
 
+    /// <summary>
+    /// Gets or sets the exception stack trace export mode.
+    /// </summary>
     public ExceptionStackExportMode ExceptionStackExportMode { get; set; }
 
-    public IReadOnlyDictionary<string, string> TableNameMappings
+    /// <summary>
+    /// Gets or sets the event name export mode.
+    /// </summary>
+    public EventNameExportMode EventNameExportMode { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether or not trace state should be included when exporting traces.
+    /// </summary>
+    public bool IncludeTraceStateForSpan { get; set; }
+
+    /// <summary>
+    /// Gets or sets table name mappings.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? TableNameMappings
     {
-        get => this._tableNameMappings;
+        get => this.tableNameMappings;
         set
         {
             Guard.ThrowIfNull(value);
@@ -62,6 +72,7 @@ public class GenevaExporterOptions
                     throw new ArgumentException($"The table name mapping value '{entry.Value}' provided for key '{entry.Key}' contained non-ASCII characters.", nameof(this.TableNameMappings));
                 }
 
+                /* Note: Validation disabled because it broke previously released versions.
                 if (entry.Value != "*")
                 {
                     if (!TableNameSerializer.IsValidTableName(entry.Value))
@@ -73,18 +84,21 @@ public class GenevaExporterOptions
                     {
                         throw new ArgumentException($"The table name mapping value '{entry.Value}' provided for key '{entry.Key}' is reserved and cannot be specified.", nameof(this.TableNameMappings));
                     }
-                }
+                }*/
 
                 copy[entry.Key] = entry.Value;
             }
 
-            this._tableNameMappings = copy;
+            this.tableNameMappings = copy;
         }
     }
 
+    /// <summary>
+    /// Gets or sets prepopulated fields.
+    /// </summary>
     public IReadOnlyDictionary<string, object> PrepopulatedFields
     {
-        get => this._fields;
+        get => this.fields;
         set
         {
             Guard.ThrowIfNull(value);
@@ -96,7 +110,7 @@ public class GenevaExporterOptions
                 schemaVersion = value[Schema.V40.PartA.Ver] as string;
             }
 
-            if (schemaVersion != "2.1" && schemaVersion != "4.0")
+            if (schemaVersion is not "2.1" and not "4.0")
             {
                 throw new ArgumentException("Unsupported schema version, only 2.1 and 4.0 are supported.");
             }
@@ -139,7 +153,7 @@ public class GenevaExporterOptions
                 copy[entry.Key] = val; // shallow copy
             }
 
-            this._fields = copy;
+            this.fields = copy;
         }
     }
 }

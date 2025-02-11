@@ -1,25 +1,169 @@
-// <copyright file="MetricSerializer.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace OpenTelemetry.Exporter.Geneva;
+
+#pragma warning disable SA1649 // File name should match first type name
+
+internal enum MetricEventType
+{
+    ULongMetric = 50,
+    DoubleMetric = 55,
+    ExternallyAggregatedULongDistributionMetric = 56,
+    TLV = 70,
+}
+
+internal enum PayloadType
+{
+    AccountName = 1,
+    Namespace = 2,
+    MetricName = 3,
+    Dimensions = 4,
+    ULongMetric = 5,
+    DoubleMetric = 6,
+    ExternallyAggregatedULongDistributionMetric = 8,
+    HistogramULongValueCountPairs = 12,
+    Exemplars = 15,
+}
+
+[Flags]
+internal enum ExemplarFlags : byte
+{
+    None = 0x0,
+    IsMetricValueDoubleStoredAsLong = 0x1,
+    IsTimestampAvailable = 0x2,
+    SpanIdExists = 0x4,
+    TraceIdExists = 0x8,
+    SampleCountExists = 0x10,
+}
+
+/// <summary>
+/// Represents the binary header for non-ETW transmitted metrics.
+/// </summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct BinaryHeader
+{
+    /// <summary>
+    /// The event ID that represents how it will be processed.
+    /// </summary>
+    [FieldOffset(0)]
+    public ushort EventId;
+
+    /// <summary>
+    /// The length of the body following the header.
+    /// </summary>
+    [FieldOffset(2)]
+    public ushort BodyLength;
+}
+
+/// <summary>
+/// Represents the fixed payload of a standard metric.
+/// </summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct MetricPayload
+{
+    /// <summary>
+    /// The dimension count.
+    /// </summary>
+    [FieldOffset(0)]
+    public ushort CountDimension;
+
+    /// <summary>
+    /// Reserved for alignment.
+    /// </summary>
+    [FieldOffset(2)]
+    public ushort ReservedWord; // for 8-byte aligned
+
+    /// <summary>
+    /// Reserved for alignment.
+    /// </summary>
+    [FieldOffset(4)]
+    public uint ReservedDword;
+
+    /// <summary>
+    /// The UTC timestamp of the metric.
+    /// </summary>
+    [FieldOffset(8)]
+    public ulong TimestampUtc;
+
+    /// <summary>
+    /// The value of the metric.
+    /// </summary>
+    [FieldOffset(16)]
+    public MetricData Data;
+}
+
+/// <summary>
+/// Represents the fixed payload of an externally aggregated metric.
+/// </summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct ExternalPayload
+{
+    /// <summary>
+    /// The dimension count.
+    /// </summary>
+    [FieldOffset(0)]
+    public ushort CountDimension;
+
+    /// <summary>
+    /// Reserved for alignment.
+    /// </summary>
+    [FieldOffset(2)]
+    public ushort ReservedWord; // for alignment
+
+    /// <summary>
+    /// The number of samples produced in the period.
+    /// </summary>
+    [FieldOffset(4)]
+    public uint Count;
+
+    /// <summary>
+    /// The UTC timestamp of the metric.
+    /// </summary>
+    [FieldOffset(8)]
+    public ulong TimestampUtc;
+
+    /// <summary>
+    /// The sum of the samples produced in the period.
+    /// </summary>
+    [FieldOffset(16)]
+    public MetricData Sum;
+
+    /// <summary>
+    /// The minimum value of the samples produced in the period.
+    /// </summary>
+    [FieldOffset(24)]
+    public MetricData Min;
+
+    /// <summary>
+    /// The maximum value of the samples produced in the period.
+    /// </summary>
+    [FieldOffset(32)]
+    public MetricData Max;
+}
+
+/// <summary>
+/// Represents the value of a metric.
+/// </summary>
+[StructLayout(LayoutKind.Explicit)]
+internal struct MetricData
+{
+    /// <summary>
+    /// The value represented as an integer.
+    /// </summary>
+    [FieldOffset(0)]
+    public ulong UInt64Value;
+
+    /// <summary>
+    /// The value represented as a double.
+    /// </summary>
+    [FieldOffset(0)]
+    public double DoubleValue;
+}
 
 internal static class MetricSerializer
 {
@@ -30,11 +174,11 @@ internal static class MetricSerializer
     /// <param name="bufferIndex">Index of the buffer.</param>
     /// <param name="value">The value.</param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void SerializeString(byte[] buffer, ref int bufferIndex, string value)
+    public static void SerializeString(byte[] buffer, ref int bufferIndex, string? value)
     {
         if (!string.IsNullOrEmpty(value))
         {
-            if (bufferIndex + value.Length + sizeof(short) >= buffer.Length)
+            if (bufferIndex + value!.Length + sizeof(short) >= buffer.Length)
             {
                 // TODO: What should we do when the data is invalid?
             }
@@ -193,135 +337,188 @@ internal static class MetricSerializer
         buffer[bufferIndex + 7] = (byte)(value >> 0x38);
         bufferIndex += sizeof(ulong);
     }
-}
-
-internal enum MetricEventType
-{
-    ULongMetric = 50,
-    DoubleMetric = 55,
-    ExternallyAggregatedULongDistributionMetric = 56,
-}
-
-/// <summary>
-/// Represents the binary header for non-ETW transmitted metrics.
-/// </summary>
-[StructLayout(LayoutKind.Explicit)]
-internal struct BinaryHeader
-{
-    /// <summary>
-    /// The event ID that represents how it will be processed.
-    /// </summary>
-    [FieldOffset(0)]
-    public ushort EventId;
 
     /// <summary>
-    /// The length of the body following the header.
+    /// Writes the long to buffer.
     /// </summary>
-    [FieldOffset(2)]
-    public ushort BodyLength;
-}
+    /// <param name="buffer">The buffer.</param>
+    /// <param name="bufferIndex">Index of the buffer.</param>
+    /// <param name="value">The value.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeInt64(byte[] buffer, ref int bufferIndex, long value)
+    {
+        if (bufferIndex + sizeof(long) >= buffer.Length)
+        {
+        }
 
-/// <summary>
-/// Represents the fixed payload of a standard metric.
-/// </summary>
-[StructLayout(LayoutKind.Explicit)]
-internal struct MetricPayload
-{
-    /// <summary>
-    /// The dimension count.
-    /// </summary>
-    [FieldOffset(0)]
-    public ushort CountDimension;
-
-    /// <summary>
-    /// Reserved for alignment.
-    /// </summary>
-    [FieldOffset(2)]
-    public ushort ReservedWord; // for 8-byte aligned
-
-    /// <summary>
-    /// Reserved for alignment.
-    /// </summary>
-    [FieldOffset(4)]
-    public uint ReservedDword;
+        buffer[bufferIndex] = (byte)value;
+        buffer[bufferIndex + 1] = (byte)(value >> 8);
+        buffer[bufferIndex + 2] = (byte)(value >> 0x10);
+        buffer[bufferIndex + 3] = (byte)(value >> 0x18);
+        buffer[bufferIndex + 4] = (byte)(value >> 0x20);
+        buffer[bufferIndex + 5] = (byte)(value >> 0x28);
+        buffer[bufferIndex + 6] = (byte)(value >> 0x30);
+        buffer[bufferIndex + 7] = (byte)(value >> 0x38);
+        bufferIndex += sizeof(long);
+    }
 
     /// <summary>
-    /// The UTC timestamp of the metric.
+    /// Writes the double to buffer.
     /// </summary>
-    [FieldOffset(8)]
-    public ulong TimestampUtc;
+    /// <param name="buffer">The buffer.</param>
+    /// <param name="bufferIndex">Index of the buffer.</param>
+    /// <param name="value">The value.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static unsafe void SerializeFloat64(byte[] buffer, ref int bufferIndex, double value)
+    {
+        if (bufferIndex + sizeof(double) >= buffer.Length)
+        {
+            // TODO: What should we do when the data is invalid?
+        }
+
+        fixed (byte* bp = buffer)
+        {
+            *(double*)(bp + bufferIndex) = value;
+        }
+
+        bufferIndex += sizeof(double);
+    }
 
     /// <summary>
-    /// The value of the metric.
+    /// Writes the base128 string to buffer.
     /// </summary>
-    [FieldOffset(16)]
-    public MetricData Data;
-}
+    /// <param name="buffer">The buffer.</param>
+    /// <param name="bufferIndex">Index of the buffer.</param>
+    /// <param name="value">The value.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeBase128String(byte[] buffer, ref int bufferIndex, string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            if (bufferIndex + value!.Length + sizeof(short) >= buffer.Length)
+            {
+                // TODO: What should we do when the data is invalid?
+            }
 
-/// <summary>
-/// Represents the fixed payload of an externally aggregated metric.
-/// </summary>
-[StructLayout(LayoutKind.Explicit)]
-internal struct ExternalPayload
-{
-    /// <summary>
-    /// The dimension count.
-    /// </summary>
-    [FieldOffset(0)]
-    public ushort CountDimension;
-
-    /// <summary>
-    /// Reserved for alignment.
-    /// </summary>
-    [FieldOffset(2)]
-    public ushort ReservedWord; // for alignment
-
-    /// <summary>
-    /// The number of samples produced in the period.
-    /// </summary>
-    [FieldOffset(4)]
-    public uint Count;
+            var encodedValue = Encoding.UTF8.GetBytes(value);
+            SerializeUInt64AsBase128(buffer, ref bufferIndex, (ulong)encodedValue.Length);
+            Array.Copy(encodedValue, 0, buffer, bufferIndex, encodedValue.Length);
+            bufferIndex += encodedValue.Length;
+        }
+        else
+        {
+            SerializeInt16(buffer, ref bufferIndex, 0);
+        }
+    }
 
     /// <summary>
-    /// The UTC timestamp of the metric.
+    /// Writes unsigned int value Base-128 encoded.
     /// </summary>
-    [FieldOffset(8)]
-    public ulong TimestampUtc;
+    /// <param name="buffer">Buffer used for writing.</param>
+    /// <param name="offset">Offset to start with. Will be moved to the next byte after written.</param>
+    /// <param name="value">Value to write.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeUInt32AsBase128(byte[] buffer, ref int offset, uint value)
+    {
+        SerializeUInt64AsBase128(buffer, ref offset, value);
+    }
 
     /// <summary>
-    /// The sum of the samples produced in the period.
+    /// Writes ulong value Base-128 encoded to the buffer starting from the specified offset.
     /// </summary>
-    [FieldOffset(16)]
-    public MetricData Sum;
+    /// <param name="buffer">Buffer used for writing.</param>
+    /// <param name="offset">Offset to start with. Will be moved to the next byte after written.</param>
+    /// <param name="value">Value to write.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeUInt64AsBase128(byte[] buffer, ref int offset, ulong value)
+    {
+        var t = value;
+        do
+        {
+            var b = (byte)(t & 0x7f);
+            t >>= 7;
+            if (t > 0)
+            {
+                b |= 0x80;
+            }
+
+            buffer[offset++] = b;
+        }
+        while (t > 0);
+    }
 
     /// <summary>
-    /// The minimum value of the samples produced in the period.
+    /// Writes int value Base-128 encoded.
     /// </summary>
-    [FieldOffset(24)]
-    public MetricData Min;
+    /// <param name="buffer">Buffer used for writing.</param>
+    /// <param name="offset">Offset to start with. Will be moved to the next byte after written.</param>
+    /// <param name="value">Value to write.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeInt32AsBase128(byte[] buffer, ref int offset, int value)
+    {
+        SerializeInt64AsBase128(buffer, ref offset, value);
+    }
 
     /// <summary>
-    /// The maximum value of the samples produced in the period.
+    /// Writes long value Base-128 encoded.
     /// </summary>
-    [FieldOffset(32)]
-    public MetricData Max;
-}
+    /// <param name="buffer">Buffer used for writing.</param>
+    /// <param name="offset">Offset to start with. Will be moved to the next byte after written.</param>
+    /// <param name="value">Value to write.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeInt64AsBase128(byte[] buffer, ref int offset, long value)
+    {
+        var negative = value < 0;
+        var t = negative ? -value : value;
+        var first = true;
+        do
+        {
+            byte b;
+            if (first)
+            {
+                b = (byte)(t & 0x3f);
+                t >>= 6;
+                if (negative)
+                {
+                    b = (byte)(b | 0x40);
+                }
 
-/// <summary>
-/// Represents the value of a metric.
-/// </summary>
-[StructLayout(LayoutKind.Explicit)]
-internal struct MetricData
-{
-    /// <summary>
-    /// The value represented as an integer.
-    /// </summary>
-    [FieldOffset(0)]
-    public ulong UInt64Value;
+                first = false;
+            }
+            else
+            {
+                b = (byte)(t & 0x7f);
+                t >>= 7;
+            }
+
+            if (t > 0)
+            {
+                b |= 0x80;
+            }
+
+            buffer[offset++] = b;
+        }
+        while (t > 0);
+    }
 
     /// <summary>
-    /// The value represented as a double.
+    /// Writes the encoded string to buffer.
     /// </summary>
-    [FieldOffset(0)]
-    public double DoubleValue;
+    /// <param name="buffer">The buffer to write data into.</param>
+    /// <param name="bufferIndex">Index of the buffer.</param>
+    /// <param name="data">Source data.</param>
+    /// <param name="dataLength"> Number of bytes to copy.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void SerializeSpanOfBytes(byte[] buffer, ref int bufferIndex, Span<byte> data, int dataLength)
+    {
+        if (bufferIndex + dataLength + sizeof(short) >= buffer.Length)
+        {
+        }
+
+        ReadOnlySpan<byte> source = data.Slice(0, dataLength);
+        var target = new Span<byte>(buffer, bufferIndex, dataLength);
+
+        source.CopyTo(target);
+        bufferIndex += dataLength;
+    }
 }

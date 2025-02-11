@@ -1,28 +1,12 @@
-// <copyright file="HttpInListenerTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Web;
 using System.Web.Routing;
-using Moq;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Instrumentation.AspNet.Implementation;
 using OpenTelemetry.Tests;
@@ -33,211 +17,218 @@ namespace OpenTelemetry.Instrumentation.AspNet.Tests;
 
 public class HttpInListenerTests
 {
-    [Theory]
-    [InlineData("http://localhost/", "http://localhost/", 0, null)]
-    [InlineData("http://localhost/", "http://localhost/", 0, null, true)]
-    [InlineData("https://localhost/", "https://localhost/", 0, null)]
-    [InlineData("https://localhost/", "https://user:pass@localhost/", 0, null)] // Test URL sanitization
-    [InlineData("http://localhost:443/", "http://localhost:443/", 0, null)] // Test http over 443
-    [InlineData("https://localhost:80/", "https://localhost:80/", 0, null)] // Test https over 80
-    [InlineData("https://localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", "https://localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", 0, null)] // Test complex URL
-    [InlineData("https://localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", "https://user:password@localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", 0, null)] // Test complex URL sanitization
-    [InlineData("http://localhost:80/Index", "http://localhost:80/Index", 1, "{controller}/{action}/{id}")]
-    [InlineData("https://localhost:443/about_attr_route/10", "https://localhost:443/about_attr_route/10", 2, "about_attr_route/{customerId}")]
-    [InlineData("http://localhost:1880/api/weatherforecast", "http://localhost:1880/api/weatherforecast", 3, "api/{controller}/{id}")]
-    [InlineData("https://localhost:1843/subroute/10", "https://localhost:1843/subroute/10", 4, "subroute/{customerId}")]
-    [InlineData("http://localhost/api/value", "http://localhost/api/value", 0, null, false, "/api/value")] // Request will be filtered
-    [InlineData("http://localhost/api/value", "http://localhost/api/value", 0, null, false, "{ThrowException}")] // Filter user code will throw an exception
-    [InlineData("http://localhost/", "http://localhost/", 0, null, false, null, true)] // Test RecordException option
-    public void AspNetRequestsAreCollectedSuccessfully(
-        string expectedUrl,
-        string url,
-        int routeType,
-        string routeTemplate,
-        bool setStatusToErrorInEnrich = false,
-        string filter = null,
-        bool recordException = false)
+    public enum QueryRedactionDisableBehavior
     {
-        IDisposable tracerProvider = null;
-        RouteData routeData;
-        switch (routeType)
+#pragma warning disable SA1602 // Enumeration items should be documented
+        DisableViaEnvVar,
+        DisableViaIConfiguration,
+#pragma warning restore SA1602 // Enumeration items should be documented
+    }
+
+    [Theory]
+    [InlineData("http://localhost/", "http", "/", null, null, "localhost", 80, "GET", "GET", null, 0, null, "GET")]
+    [InlineData("http://localhost/?foo=bar&baz=test", "http", "/", "foo=bar&baz=test", QueryRedactionDisableBehavior.DisableViaEnvVar, "localhost", 80, "POST", "POST", null, 0, null, "POST", true)]
+    [InlineData("http://localhost/?foo=bar&baz=test", "http", "/", "foo=bar&baz=test", QueryRedactionDisableBehavior.DisableViaIConfiguration, "localhost", 80, "POST", "POST", null, 0, null, "POST", true)]
+    [InlineData("http://localhost/?foo=bar&baz=test", "http", "/", "foo=Redacted&baz=Redacted", null, "localhost", 80, "POST", "POST", null, 0, null, "POST", true)]
+    [InlineData("https://localhost/", "https", "/", null, null, "localhost", 443, "NonStandard", "_OTHER", "NonStandard", 0, null, "HTTP")]
+    [InlineData("https://user:pass@localhost/", "https", "/", null, null, "localhost", 443, "GeT", "GET", "GeT", 0, null, "GET")] // Test URL sanitization
+    [InlineData("http://localhost:443/", "http", "/", null, null, "localhost", 443, "GET", "GET", null, 0, null, "GET")] // Test http over 443
+    [InlineData("https://localhost:80/", "https", "/", null, null, "localhost", 80, "GET", "GET", null, 0, null, "GET")] // Test https over 80
+    [InlineData("https://localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", "https", "/Home/Index.htm", "q1=v1&q2=v2", QueryRedactionDisableBehavior.DisableViaEnvVar, "localhost", 80, "GET", "GET", null, 0, null, "GET")] // Test complex URL
+    [InlineData("https://localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", "https", "/Home/Index.htm", "q1=Redacted&q2=Redacted", null, "localhost", 80, "GET", "GET", null, 0, null, "GET")] // Test complex URL
+    [InlineData("https://user:password@localhost:80/Home/Index.htm?q1=v1&q2=v2#FragmentName", "https", "/Home/Index.htm", "q1=v1&q2=v2", QueryRedactionDisableBehavior.DisableViaIConfiguration, "localhost", 80, "GET", "GET", null, 0, null, "GET")] // Test complex URL sanitization
+    [InlineData("http://localhost:80/Index", "http", "/Index", null, null, "localhost", 80, "GET", "GET", null, 1, "{controller}/{action}/{id}", "GET {controller}/{action}/{id}")]
+    [InlineData("https://localhost:443/about_attr_route/10", "https", "/about_attr_route/10", null, null, "localhost", 443, "HEAD", "HEAD", null, 2, "about_attr_route/{customerId}", "HEAD about_attr_route/{customerId}")]
+    [InlineData("http://localhost:1880/api/weatherforecast", "http", "/api/weatherforecast", null, null, "localhost", 1880, "GET", "GET", null, 3, "api/{controller}/{id}", "GET api/{controller}/{id}")]
+    [InlineData("https://localhost:1843/subroute/10", "https", "/subroute/10", null, null, "localhost", 1843, "GET", "GET", null, 4, "subroute/{customerId}", "GET subroute/{customerId}")]
+    [InlineData("https://localhost:1843/subroute/10", "https", "/subroute/10", null, null, "localhost", 1843, "GET", "GET", null, 5, "subroute/{customerId}", "GET subroute/{customerId}")]
+    [InlineData("http://localhost/api/value", "http", "/api/value", null, null, "localhost", 80, "GET", "GET", null, 0, null, "GET", false, "/api/value")] // Request will be filtered
+    [InlineData("http://localhost/api/value", "http", "/api/value", null, null, "localhost", 80, "GET", "GET", null, 0, null, "GET", false, "{ThrowException}")] // Filter user code will throw an exception
+    [InlineData("http://localhost/", "http", "/", null, null, "localhost", 80, "GET", "GET", null, 0, null, "GET", false, null, true, "System.InvalidOperationException")] // Test RecordException option
+    public void AspNetRequestsAreCollectedSuccessfully(
+        string url,
+        string expectedUrlScheme,
+        string expectedUrlPath,
+        string? expectedUrlQuery,
+        QueryRedactionDisableBehavior? disableQueryRedaction,
+        string expectedHost,
+        int expectedPort,
+        string requestMethod,
+        string expectedRequestMethod,
+        string? expectedOriginalRequestMethod,
+        int routeType,
+        string? routeTemplate,
+        string expectedName,
+        bool setStatusToErrorInEnrich = false,
+        string? filter = null,
+        bool recordException = false,
+        string? expectedErrorType = null)
+    {
+        try
         {
-            case 0: // WebForm, no route data.
-                routeData = new RouteData();
-                break;
-            case 1: // Traditional MVC.
-            case 2: // Attribute routing MVC.
-            case 3: // Traditional WebAPI.
-                routeData = new RouteData()
-                {
-                    Route = new Route(routeTemplate, null),
-                };
-                break;
-            case 4: // Attribute routing WebAPI.
-                routeData = new RouteData();
-                var value = new[]
-                {
-                    new
-                    {
-                        Route = new
-                        {
-                            RouteTemplate = routeTemplate,
-                        },
-                    },
-                };
-                routeData.Values.Add(
-                    "MS_SubRoutes",
-                    value);
-                break;
-            default:
-                throw new NotSupportedException();
-        }
-
-        var workerRequest = new Mock<HttpWorkerRequest>();
-        workerRequest.Setup(wr => wr.GetKnownRequestHeader(It.IsAny<int>())).Returns<int>(i =>
-        {
-            return i switch
+            if (disableQueryRedaction == QueryRedactionDisableBehavior.DisableViaEnvVar)
             {
-                39 => "Test", // User-Agent
-                _ => null,
-            };
-        });
-
-        HttpContext.Current = new HttpContext(
-            new HttpRequest(string.Empty, url, string.Empty)
-            {
-                RequestContext = new RequestContext()
-                {
-                    RouteData = routeData,
-                },
-            },
-            new HttpResponse(new StringWriter()));
-
-        typeof(HttpRequest).GetField("_wr", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(HttpContext.Current.Request, workerRequest.Object);
-
-        List<Activity> exportedItems = new List<Activity>(16);
-
-        Sdk.SetDefaultTextMapPropagator(new TraceContextPropagator());
-        using (tracerProvider = Sdk.CreateTracerProviderBuilder()
-                   .AddAspNetInstrumentation((options) =>
-                   {
-                       options.Filter = httpContext =>
-                       {
-                           Assert.True(Activity.Current.IsAllDataRequested);
-                           if (string.IsNullOrEmpty(filter))
-                           {
-                               return true;
-                           }
-
-                           if (filter == "{ThrowException}")
-                           {
-                               throw new InvalidOperationException();
-                           }
-
-                           return httpContext.Request.Path != filter;
-                       };
-
-                       options.Enrich = GetEnrichmentAction(setStatusToErrorInEnrich ? ActivityStatusCode.Error : default);
-
-                       options.RecordException = recordException;
-                   })
-                   .AddInMemoryExporter(exportedItems)
-                   .Build())
-        {
-            using var inMemoryEventListener = new InMemoryEventListener(AspNetInstrumentationEventSource.Log);
-
-            var activity = ActivityHelper.StartAspNetActivity(Propagators.DefaultTextMapPropagator, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStartedCallback);
-
-            if (filter == "{ThrowException}")
-            {
-                Assert.Single(inMemoryEventListener.Events.Where((e) => e.EventId == 2));
+                Environment.SetEnvironmentVariable("OTEL_DOTNET_EXPERIMENTAL_ASPNET_DISABLE_URL_QUERY_REDACTION", "true");
             }
 
-            Assert.Equal(TelemetryHttpModule.AspNetActivityName, Activity.Current.OperationName);
+            HttpContext.Current = RouteTestHelper.BuildHttpContext(url, routeType, routeTemplate, requestMethod);
+
+            typeof(HttpRequest).GetField("_wr", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(HttpContext.Current.Request, new TestHttpWorkerRequest());
+
+            var exportedItems = new List<Activity>(16);
+
+            Sdk.SetDefaultTextMapPropagator(new TraceContextPropagator());
+            using (Sdk.CreateTracerProviderBuilder()
+                .ConfigureServices(services =>
+                {
+                    if (disableQueryRedaction == QueryRedactionDisableBehavior.DisableViaIConfiguration)
+                    {
+                        var config = new ConfigurationBuilder()
+                            .AddInMemoryCollection(new Dictionary<string, string?>()
+                            {
+                                ["OTEL_DOTNET_EXPERIMENTAL_ASPNET_DISABLE_URL_QUERY_REDACTION"] = "true",
+                            })
+                            .Build();
+
+                        services.AddSingleton<IConfiguration>(config);
+                    }
+                })
+                .AddAspNetInstrumentation((options) =>
+                {
+                    options.Filter = httpContext =>
+                    {
+                        Assert.True(Activity.Current!.IsAllDataRequested);
+                        if (string.IsNullOrEmpty(filter))
+                        {
+                            return true;
+                        }
+
+                        if (filter == "{ThrowException}")
+                        {
+                            throw new InvalidOperationException();
+                        }
+
+                        return httpContext.Request.Path != filter;
+                    };
+
+                    options.EnrichWithHttpRequest = (activity, request) =>
+                    {
+                        Assert.NotNull(activity);
+                        Assert.NotNull(request);
+
+                        Assert.True(activity.IsAllDataRequested);
+                    };
+
+                    options.EnrichWithHttpResponse = (activity, response) =>
+                    {
+                        Assert.NotNull(activity);
+                        Assert.NotNull(response);
+
+                        Assert.True(activity.IsAllDataRequested);
+
+                        if (setStatusToErrorInEnrich)
+                        {
+                            activity.SetStatus(ActivityStatusCode.Error);
+                        }
+                    };
+
+                    options.EnrichWithException = (activity, exception) =>
+                    {
+                        Assert.NotNull(activity);
+                        Assert.NotNull(exception);
+
+                        Assert.True(activity.IsAllDataRequested);
+                    };
+
+                    options.RecordException = recordException;
+                })
+                .AddInMemoryExporter(exportedItems)
+                .SetSampler(
+                    new TestSampler(SamplingDecision.RecordAndSample)
+                    {
+                        ExpectedUrlPath = expectedUrlPath,
+                    })
+                .Build())
+            {
+                using var inMemoryEventListener = new InMemoryEventListener(AspNetInstrumentationEventSource.Log);
+
+                var activity = ActivityHelper.StartAspNetActivity(Propagators.DefaultTextMapPropagator, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStartedCallback);
+
+                if (filter == "{ThrowException}")
+                {
+                    Assert.Single(inMemoryEventListener.Events, e => e.EventId == 2);
+                }
+
+                Assert.Equal(TelemetryHttpModule.AspNetActivityName, Activity.Current!.OperationName);
+
+                if (recordException)
+                {
+                    ActivityHelper.WriteActivityException(activity, HttpContext.Current, new InvalidOperationException(), TelemetryHttpModule.Options.OnExceptionCallback);
+                }
+
+                ActivityHelper.StopAspNetActivity(Propagators.DefaultTextMapPropagator, activity, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStoppedCallback);
+            }
+
+            if (HttpContext.Current.Request.Path == filter || filter == "{ThrowException}")
+            {
+                Assert.Empty(exportedItems);
+                return;
+            }
+
+            Assert.Single(exportedItems);
+
+            var span = exportedItems[0];
+
+            Assert.Equal(TelemetryHttpModule.AspNetActivityName, span.OperationName);
+            Assert.NotEqual(TimeSpan.Zero, span.Duration);
+
+            Assert.Equal(expectedName, span.DisplayName);
+            Assert.Equal(ActivityKind.Server, span.Kind);
+            Assert.True(span.Duration != TimeSpan.Zero);
+
+            Assert.Equal(200, span.GetTagValue("http.response.status_code"));
+
+            Assert.Equal(expectedHost, span.GetTagValue("server.address"));
+            Assert.Equal(expectedPort, span.GetTagValue("server.port"));
+
+            Assert.Equal(expectedRequestMethod, span.GetTagValue("http.request.method"));
+            Assert.Equal(expectedOriginalRequestMethod, span.GetTagValue("http.request.method_original"));
+            Assert.Equal("FakeHTTP/123", span.GetTagValue("network.protocol.version"));
+
+            Assert.Equal(expectedUrlPath, span.GetTagValue("url.path"));
+            Assert.Equal(expectedUrlQuery, span.GetTagValue("url.query"));
+            Assert.Equal(expectedUrlScheme, span.GetTagValue("url.scheme"));
+            Assert.Equal("Custom User Agent v1.2.3", span.GetTagValue("user_agent.original"));
+            Assert.Equal(expectedErrorType, span.GetTagValue("error.type"));
 
             if (recordException)
             {
-                ActivityHelper.WriteActivityException(activity, HttpContext.Current, new InvalidOperationException(), TelemetryHttpModule.Options.OnExceptionCallback);
+                var status = span.Status;
+                Assert.Equal(ActivityStatusCode.Error, span.Status);
+                Assert.Equal("Operation is not valid due to the current state of the object.", span.StatusDescription);
             }
+            else if (setStatusToErrorInEnrich)
+            {
+                // This validates that users can override the
+                // status in Enrich.
+                Assert.Equal(ActivityStatusCode.Error, span.Status);
 
-            ActivityHelper.StopAspNetActivity(Propagators.DefaultTextMapPropagator, activity, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStoppedCallback);
+                // Instrumentation is not expected to set status description
+                // as the reason can be inferred from SemanticConventions.AttributeHttpStatusCode
+                Assert.True(string.IsNullOrEmpty(span.StatusDescription));
+            }
+            else
+            {
+                Assert.Equal(ActivityStatusCode.Unset, span.Status);
+
+                // Instrumentation is not expected to set status description
+                // as the reason can be inferred from SemanticConventions.AttributeHttpStatusCode
+                Assert.True(string.IsNullOrEmpty(span.StatusDescription));
+            }
         }
-
-        if (HttpContext.Current.Request.Path == filter || filter == "{ThrowException}")
+        finally
         {
-            Assert.Empty(exportedItems);
-            return;
-        }
-
-        Assert.Single(exportedItems);
-
-        Activity span = exportedItems[0];
-
-        Assert.Equal(TelemetryHttpModule.AspNetActivityName, span.OperationName);
-        Assert.NotEqual(TimeSpan.Zero, span.Duration);
-
-        Assert.Equal(routeTemplate ?? HttpContext.Current.Request.Path, span.DisplayName);
-        Assert.Equal(ActivityKind.Server, span.Kind);
-        Assert.True(span.Duration != TimeSpan.Zero);
-
-        Assert.Equal(200, span.GetTagValue(SemanticConventions.AttributeHttpStatusCode));
-
-        var expectedUri = new Uri(expectedUrl);
-        var actualUrl = span.GetTagValue(SemanticConventions.AttributeHttpUrl);
-
-        Assert.Equal(expectedUri.ToString(), actualUrl);
-
-        // Url strips 80 or 443 if the scheme matches.
-        if ((expectedUri.Port == 80 && expectedUri.Scheme == "http") || (expectedUri.Port == 443 && expectedUri.Scheme == "https"))
-        {
-            Assert.DoesNotContain($":{expectedUri.Port}", actualUrl as string);
-        }
-        else
-        {
-            Assert.Contains($":{expectedUri.Port}", actualUrl as string);
-        }
-
-        // Host includes port if it isn't 80 or 443.
-        if (expectedUri.Port is 80 or 443)
-        {
-            Assert.Equal(
-                expectedUri.Host,
-                span.GetTagValue(SemanticConventions.AttributeHttpHost) as string);
-        }
-        else
-        {
-            Assert.Equal(
-                $"{expectedUri.Host}:{expectedUri.Port}",
-                span.GetTagValue(SemanticConventions.AttributeHttpHost) as string);
-        }
-
-        Assert.Equal(HttpContext.Current.Request.HttpMethod, span.GetTagValue(SemanticConventions.AttributeHttpMethod) as string);
-        Assert.Equal(HttpContext.Current.Request.Path, span.GetTagValue(SemanticConventions.AttributeHttpTarget) as string);
-        Assert.Equal(HttpContext.Current.Request.UserAgent, span.GetTagValue(SemanticConventions.AttributeHttpUserAgent) as string);
-
-        if (recordException)
-        {
-            var status = span.Status;
-            Assert.Equal(ActivityStatusCode.Error, span.Status);
-            Assert.Equal("Operation is not valid due to the current state of the object.", span.StatusDescription);
-        }
-        else if (setStatusToErrorInEnrich)
-        {
-            // This validates that users can override the
-            // status in Enrich.
-            Assert.Equal(ActivityStatusCode.Error, span.Status);
-
-            // Instrumentation is not expected to set status description
-            // as the reason can be inferred from SemanticConventions.AttributeHttpStatusCode
-            Assert.True(string.IsNullOrEmpty(span.StatusDescription));
-        }
-        else
-        {
-            Assert.Equal(ActivityStatusCode.Unset, span.Status);
-
-            // Instrumentation is not expected to set status description
-            // as the reason can be inferred from SemanticConventions.AttributeHttpStatusCode
-            Assert.True(string.IsNullOrEmpty(span.StatusDescription));
+            Environment.SetEnvironmentVariable("OTEL_DOTNET_EXPERIMENTAL_ASPNET_DISABLE_URL_QUERY_REDACTION", null);
         }
     }
 
@@ -257,21 +248,18 @@ public class HttpInListenerTests
             },
             new HttpResponse(new StringWriter()));
 
-        bool isPropagatorCalled = false;
-        var propagator = new Mock<TextMapPropagator>();
-        propagator.Setup(m => m.Extract(It.IsAny<PropagationContext>(), It.IsAny<HttpRequest>(), It.IsAny<Func<HttpRequest, string, IEnumerable<string>>>()))
-            .Returns(() =>
-            {
-                isPropagatorCalled = true;
-                return default;
-            });
+        var isPropagatorCalled = false;
+        var propagator = new TestTextMapPropagator
+        {
+            Extracted = () => isPropagatorCalled = true,
+        };
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
-        Sdk.SetDefaultTextMapPropagator(propagator.Object);
+        var activityProcessor = new TestActivityProcessor();
+        Sdk.SetDefaultTextMapPropagator(propagator);
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-                   .SetSampler(new TestSampler(samplingDecision))
-                   .AddAspNetInstrumentation()
-                   .AddProcessor(activityProcessor.Object).Build())
+            .SetSampler(new TestSampler(samplingDecision))
+            .AddAspNetInstrumentation()
+            .AddProcessor(activityProcessor).Build())
         {
             var activity = ActivityHelper.StartAspNetActivity(Propagators.DefaultTextMapPropagator, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStartedCallback);
             ActivityHelper.StopAspNetActivity(Propagators.DefaultTextMapPropagator, activity, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStoppedCallback);
@@ -293,28 +281,25 @@ public class HttpInListenerTests
             },
             new HttpResponse(new StringWriter()));
 
-        bool isPropagatorCalled = false;
-        var propagator = new Mock<TextMapPropagator>();
-        propagator.Setup(m => m.Extract(It.IsAny<PropagationContext>(), It.IsAny<HttpRequest>(), It.IsAny<Func<HttpRequest, string, IEnumerable<string>>>()))
-            .Returns(() =>
-            {
-                isPropagatorCalled = true;
-                return default;
-            });
+        var isPropagatorCalled = false;
+        var propagator = new TestTextMapPropagator
+        {
+            Extracted = () => isPropagatorCalled = true,
+        };
 
-        bool isFilterCalled = false;
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
-        Sdk.SetDefaultTextMapPropagator(propagator.Object);
+        var isFilterCalled = false;
+        var activityProcessor = new TestActivityProcessor();
+        Sdk.SetDefaultTextMapPropagator(propagator);
         using (var tracerProvider = Sdk.CreateTracerProviderBuilder()
-                   .AddAspNetInstrumentation(options =>
-                   {
-                       options.Filter = context =>
-                       {
-                           isFilterCalled = true;
-                           return false;
-                       };
-                   })
-                   .AddProcessor(activityProcessor.Object).Build())
+            .AddAspNetInstrumentation(options =>
+            {
+                options.Filter = context =>
+                {
+                    isFilterCalled = true;
+                    return false;
+                };
+            })
+            .AddProcessor(activityProcessor).Build())
         {
             var activity = ActivityHelper.StartAspNetActivity(Propagators.DefaultTextMapPropagator, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStartedCallback);
             ActivityHelper.StopAspNetActivity(Propagators.DefaultTextMapPropagator, activity, HttpContext.Current, TelemetryHttpModule.Options.OnRequestStoppedCallback);
@@ -324,45 +309,20 @@ public class HttpInListenerTests
         Assert.True(isPropagatorCalled);
     }
 
-    private static Action<Activity, string, object> GetEnrichmentAction(ActivityStatusCode statusToBeSet)
+    private class TestSampler(SamplingDecision samplingDecision) : Sampler
     {
-        void EnrichAction(Activity activity, string method, object obj)
-        {
-            Assert.True(activity.IsAllDataRequested);
-            switch (method)
-            {
-                case "OnStartActivity":
-                    Assert.True(obj is HttpRequest);
-                    break;
+        private readonly SamplingDecision samplingDecision = samplingDecision;
 
-                case "OnStopActivity":
-                    Assert.True(obj is HttpResponse);
-                    if (statusToBeSet != default)
-                    {
-                        activity.SetStatus(statusToBeSet);
-                    }
-
-                    break;
-
-                default:
-                    break;
-            }
-        }
-
-        return EnrichAction;
-    }
-
-    private class TestSampler : Sampler
-    {
-        private readonly SamplingDecision samplingDecision;
-
-        public TestSampler(SamplingDecision samplingDecision)
-        {
-            this.samplingDecision = samplingDecision;
-        }
+        public string? ExpectedUrlPath { get; set; }
 
         public override SamplingResult ShouldSample(in SamplingParameters samplingParameters)
         {
+            if (!string.IsNullOrEmpty(this.ExpectedUrlPath))
+            {
+                Assert.NotNull(samplingParameters.Tags);
+                Assert.Contains(samplingParameters.Tags, t => t.Key == "url.path" && (t.Value as string) == this.ExpectedUrlPath);
+            }
+
             return new SamplingResult(this.samplingDecision);
         }
     }

@@ -1,32 +1,11 @@
-// <copyright file="StackdriverExporterTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using Google.Api.Gax.Grpc;
-using Google.Cloud.Trace.V2;
-using Grpc.Core;
-using Moq;
+using OpenTelemetry.Exporter.Stackdriver.Implementation;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-
 using Xunit;
-using Status = Grpc.Core.Status;
 
 namespace OpenTelemetry.Exporter.Stackdriver.Tests;
 
@@ -47,21 +26,14 @@ public class StackdriverExporterTests
     }
 
     [Fact]
-    public void StackdriverExporter_BadArgs()
-    {
-        TracerProviderBuilder builder = null;
-        Assert.Throws<ArgumentNullException>(() => builder.UseStackdriverExporter(string.Empty));
-    }
-
-    [Fact]
     public void StackdriverExporter_CustomActivityProcessor()
     {
         const string ActivitySourceName = "stackdriver.test";
-        Guid requestId = Guid.NewGuid();
-        TestActivityProcessor testActivityProcessor = new TestActivityProcessor();
+        var requestId = Guid.NewGuid();
+        var testActivityProcessor = new TestActivityProcessor();
 
-        bool startCalled = false;
-        bool endCalled = false;
+        var startCalled = false;
+        var endCalled = false;
 
         testActivityProcessor.StartAction =
             (a) =>
@@ -89,31 +61,49 @@ public class StackdriverExporterTests
     }
 
     [Fact]
+    public void StackdriverExporter_WithServiceNameMetadata()
+    {
+        const string ActivitySourceName = "stackdriver.test";
+
+        var traceClient = new TestTraceServiceClient(throwException: false);
+        var activityExporter = new StackdriverTraceExporter("test_project", traceClient);
+
+        var openTelemetrySdk = Sdk.CreateTracerProviderBuilder()
+            .AddSource(ActivitySourceName)
+            .ConfigureResource(r => r.AddService("test-service", "2.3.4"))
+            .AddProcessor(new BatchActivityExportProcessor(activityExporter))
+            .Build();
+
+        using var source = new ActivitySource(ActivitySourceName);
+        var activity = source.StartActivity("Test Activity");
+        activity?.Stop();
+        openTelemetrySdk.ForceFlush();
+        Assert.True(traceClient.Spans.Count > 0);
+        Assert.True(traceClient.Spans.All(s => s.Attributes.AttributeMap.ContainsKey(ResourceSemanticConventions.AttributeServiceName)));
+    }
+
+    [Fact]
     public void StackdriverExporter_TraceClientThrows_ExportResultFailure()
     {
-        Exception exception = null;
-        ExportResult result = ExportResult.Success;
+        Exception? exception;
+        var result = ExportResult.Success;
         var exportedItems = new List<Activity>();
         const string ActivitySourceName = "stackdriver.test";
         var source = new ActivitySource(ActivitySourceName);
-        var traceClientMock = new Mock<TraceServiceClient>(MockBehavior.Strict);
-        traceClientMock.Setup(x =>
-                x.BatchWriteSpans(It.IsAny<BatchWriteSpansRequest>(), It.IsAny<CallSettings>()))
-            .Throws(new RpcException(Status.DefaultCancelled))
-            .Verifiable($"{nameof(TraceServiceClient.BatchWriteSpans)} was never called");
-        var activityExporter = new StackdriverTraceExporter("test", traceClientMock.Object);
+        var traceClient = new TestTraceServiceClient(throwException: true);
+        var activityExporter = new StackdriverTraceExporter("test", traceClient);
 
         var processor = new BatchActivityExportProcessor(new InMemoryExporter<Activity>(exportedItems));
 
-        for (int i = 0; i < 10; i++)
+        for (var i = 0; i < 10; i++)
         {
-            using Activity activity = CreateTestActivity();
+            using var activity = CreateTestActivity();
             processor.OnEnd(activity);
         }
 
         processor.Shutdown();
 
-        var batch = new Batch<Activity>(exportedItems.ToArray(), exportedItems.Count);
+        var batch = new Batch<Activity>([.. exportedItems], exportedItems.Count);
         RunTest(batch);
 
         void RunTest(Batch<Activity> batch)
@@ -126,34 +116,30 @@ public class StackdriverExporterTests
 
         Assert.Null(exception);
         Assert.StrictEqual(ExportResult.Failure, result);
-        traceClientMock.VerifyAll();
     }
 
     [Fact]
     public void StackdriverExporter_TraceClientDoesNotTrow_ExportResultSuccess()
     {
-        Exception exception = null;
-        ExportResult result = ExportResult.Failure;
+        Exception? exception;
+        var result = ExportResult.Failure;
         var exportedItems = new List<Activity>();
         const string ActivitySourceName = "stackdriver.test";
         var source = new ActivitySource(ActivitySourceName);
-        var traceClientMock = new Mock<TraceServiceClient>(MockBehavior.Strict);
-        traceClientMock.Setup(x =>
-                x.BatchWriteSpans(It.IsAny<BatchWriteSpansRequest>(), It.IsAny<CallSettings>()))
-            .Verifiable($"{nameof(TraceServiceClient.BatchWriteSpans)} was never called");
-        var activityExporter = new StackdriverTraceExporter("test", traceClientMock.Object);
+        var traceClient = new TestTraceServiceClient(throwException: false);
+        var activityExporter = new StackdriverTraceExporter("test", traceClient);
 
         var processor = new BatchActivityExportProcessor(new InMemoryExporter<Activity>(exportedItems));
 
-        for (int i = 0; i < 10; i++)
+        for (var i = 0; i < 10; i++)
         {
-            using Activity activity = CreateTestActivity();
+            using var activity = CreateTestActivity();
             processor.OnEnd(activity);
         }
 
         processor.Shutdown();
 
-        var batch = new Batch<Activity>(exportedItems.ToArray(), exportedItems.Count);
+        var batch = new Batch<Activity>([.. exportedItems], exportedItems.Count);
         RunTest(batch);
 
         void RunTest(Batch<Activity> batch)
@@ -166,15 +152,13 @@ public class StackdriverExporterTests
 
         Assert.Null(exception);
         Assert.StrictEqual(ExportResult.Success, result);
-        traceClientMock.VerifyAll();
     }
 
     internal static Activity CreateTestActivity(
         bool setAttributes = true,
-        Dictionary<string, object> additionalAttributes = null,
+        Dictionary<string, object>? additionalAttributes = null,
         bool addEvents = true,
         bool addLinks = true,
-        Resource resource = null,
         ActivityKind kind = ActivityKind.Client)
     {
         var startTimestamp = DateTime.UtcNow;
@@ -182,9 +166,9 @@ public class StackdriverExporterTests
         var eventTimestamp = DateTime.UtcNow;
         var traceId = ActivityTraceId.CreateFromString("e8ea7e9ac72de94e91fabc613f9686b2".AsSpan());
 
-        var parentSpanId = ActivitySpanId.CreateFromBytes(new byte[] { 12, 23, 34, 45, 56, 67, 78, 89 });
+        var parentSpanId = ActivitySpanId.CreateFromBytes([12, 23, 34, 45, 56, 67, 78, 89]);
 
-        var attributes = new Dictionary<string, object>
+        var attributes = new Dictionary<string, object?>
         {
             { "stringKey", "value" },
             { "longKey", 1L },
@@ -205,14 +189,14 @@ public class StackdriverExporterTests
 
         var events = new List<ActivityEvent>
         {
-            new ActivityEvent(
+            new(
                 "Event1",
                 eventTimestamp,
                 new ActivityTagsCollection
                 {
                     { "key", "value" },
                 }),
-            new ActivityEvent(
+            new(
                 "Event2",
                 eventTimestamp,
                 new ActivityTagsCollection
@@ -226,7 +210,7 @@ public class StackdriverExporterTests
         var activitySource = new ActivitySource(nameof(CreateTestActivity));
 
         var tags = setAttributes ?
-            attributes.Select(kvp => new KeyValuePair<string, object>(kvp.Key, kvp.Value?.ToString()))
+            attributes.Select(kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value?.ToString()))
             : null;
         var links = addLinks ?
             new[]
@@ -244,7 +228,7 @@ public class StackdriverExporterTests
             parentContext: new ActivityContext(traceId, parentSpanId, ActivityTraceFlags.Recorded),
             tags,
             links,
-            startTime: startTimestamp);
+            startTime: startTimestamp)!;
 
         if (addEvents)
         {

@@ -1,7 +1,13 @@
 # Runtime Instrumentation for OpenTelemetry .NET
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Runtime.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Runtime)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Runtime.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Runtime)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Stable](../../README.md#beta)|
+| Code Owners   |  [@twenzel](https://github.com/twenzel), [@xiang17](https://github.com/xiang17)|
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Runtime)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Runtime)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Runtime)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Runtime)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.Runtime)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.Runtime)
 
 This is an [Instrumentation
 Library](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library),
@@ -42,13 +48,19 @@ to the application.
 
 ## Metrics
 
+> [!NOTE]
+> .NET 9 introduced built-in runtime metrics. As such, when applications target
+  .NET 9 or greater this package registers a `Meter` to receive the built-in
+  `System.Runtime` metrics. See the [.NET Runtime metrics documentation](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/built-in-metrics-runtime)
+  for details of the metric and attribute names for the built-in metrics.
+
 ### GC related metrics
 
 #### process.runtime.dotnet.**gc.collections.count**
 
 Number of garbage collections that have occurred since process start.
 
-> **Note**
+> [!NOTE]
 > .NET uses a [generational GC](https://learn.microsoft.com/en-us/dotnet/standard/garbage-collection/fundamentals#generations)
 which divides the heap into different generations numbered 0, 1, and 2. In each
 collection the GC decides which generation to search for reclaimable memory,
@@ -102,7 +114,7 @@ Count of bytes allocated on the managed GC heap since the process start.
 .NET objects are allocated from this heap. Object allocations from unmanaged languages
 such as C/C++ do not use this heap.
 
-> **Note**
+> [!NOTE]
 > This metric is only available when targeting .NET 6 or later.
 
 | Units   | Instrument Type   | Value Type | Attribute Key(s) | Attribute Values |
@@ -124,7 +136,7 @@ objects (the heap size) and some extra memory that is ready to handle newly
 allocated objects in the future. The value will be unavailable until at least one
 garbage collection has occurred.
 
-> **Note**
+> [!NOTE]
 > This metric is only available when targeting .NET 6 or later.
 
 | Units   | Instrument Type         | Value Type | Attribute Key(s) | Attribute Values |
@@ -142,7 +154,7 @@ The heap size (including fragmentation), as observed during the
 latest garbage collection. The value will be unavailable until at least one
 garbage collection has occurred.
 
-> **Note**
+> [!NOTE]
 > This metric is only available when targeting .NET 6 or later.
 
 | Units   | Instrument Type         | Value Type | Attribute Key(s) | Attribute Values           |
@@ -151,7 +163,7 @@ garbage collection has occurred.
 
 The API used to retrieve the value is:
 
-* [GC.GetGCMemoryInfo().GenerationInfo[i].SizeAfterBytes](https://docs.microsoft.com/dotnet/api/system.gcgenerationinfo):
+* [GC.GetGCMemoryInfo().GenerationInfo\[i\].SizeAfterBytes](https://docs.microsoft.com/dotnet/api/system.gcgenerationinfo):
   Represents the size in bytes of a generation on exit of the GC reported in GCMemoryInfo.
   Note that this API on .NET 6 has a [bug](https://github.com/dotnet/runtime/pull/60309).
   For .NET 6, heap size is retrieved with an internal method `GC.GetGenerationSize`,
@@ -164,7 +176,7 @@ The API used to retrieve the value is:
 The heap fragmentation, as observed during the latest garbage collection.
 The value will be unavailable until at least one garbage collection has occurred.
 
-> **Note**
+> [!NOTE]
 > This metric is only available when targeting .NET 7 or later.
 
 | Units   | Instrument Type         | Value Type | Attribute Key(s) | Attribute Values           |
@@ -175,6 +187,22 @@ The API used to retrieve the value is:
 
 * [GCGenerationInfo.FragmentationAfterBytes Property](https://docs.microsoft.com/dotnet/api/system.gcgenerationinfo.fragmentationafterbytes)
   Gets the fragmentation in bytes on exit from the reported collection.
+
+#### process.runtime.dotnet.**gc.duration**
+
+The total amount of time paused in GC since the process start.
+
+> [!NOTE]
+> This metric is only available when targeting .NET 7 or later.
+
+| Units | Instrument Type   | Value Type | Attribute Key(s) | Attribute Values |
+|-------|-------------------|------------|------------------|------------------|
+| `ns`  | ObservableCounter | `Int64`    | No Attributes    | N/A              |
+
+The API used to retrieve the value is:
+
+* [GC.GetTotalPauseDuration](https://learn.microsoft.com/dotnet/api/system.gc.gettotalpauseduration)
+  Gets the total amount of time paused in GC since the beginning of the process.
 
 ### JIT Compiler related metrics
 
@@ -311,7 +339,7 @@ Count of exceptions that have been thrown in managed code, since the
 observation started. The value will be unavailable until an exception has been
 thrown after OpenTelemetry.Instrumentation.Runtime initialization.
 
-> **Note**
+> [!NOTE]
 > The value is tracked by incrementing a counter whenever an AppDomain.FirstChanceException
 event occurs. The observation starts when the Runtime instrumentation library is
 initialized, so the value will be unavailable until an exception has been

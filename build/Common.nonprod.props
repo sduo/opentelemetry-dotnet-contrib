@@ -4,12 +4,16 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <CodeAnalysisRuleSet>$(MSBuildThisFileDirectory)/OpenTelemetryContrib.test.ruleset</CodeAnalysisRuleSet>
-    <NoWarn>$(NoWarn),1574,1591</NoWarn>
+    <NoWarn>$(NoWarn),1574,1591;CA1515</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />
   </ItemGroup>
+
+  <PropertyGroup>
+    <DefaultTargetFrameworkForExampleApps>$(NetMinimumSupportedVersion)</DefaultTargetFrameworkForExampleApps>
+  </PropertyGroup>
 
   <PropertyGroup Condition="$(MSBuildProjectName.Contains('.Tests'))">
     <IsTestProject>true</IsTestProject>
@@ -20,17 +24,37 @@
       Please sort alphabetically.
       Refer to https://docs.microsoft.com/en-us/nuget/concepts/package-versioning for semver syntax.
     -->
-    <BenchmarkDotNetPkgVer>[0.13.3,0.14)</BenchmarkDotNetPkgVer>
-    <CoverletCollectorPkgVer>[3.2.0,4.0.0)</CoverletCollectorPkgVer>
-    <DotNetXUnitCliVer>[2.3.1,3.0)</DotNetXUnitCliVer>
-    <MicrosoftExtensionsLoggingPkgVer>[5.0.0,7.0)</MicrosoftExtensionsLoggingPkgVer>
-    <MicrosoftNETTestSdkPkgVer>[17.3.2,18.0)</MicrosoftNETTestSdkPkgVer>
-    <MoqPkgVer>[4.18.3,5.0)</MoqPkgVer>
-    <MoqNet45PkgVer>[4.17.2,5.0)</MoqNet45PkgVer>
+    <BenchmarkDotNetPkgVer>[0.13.12,0.14)</BenchmarkDotNetPkgVer>
+    <MicrosoftExtensionsConfigurationJsonPkgVer>8.0.1</MicrosoftExtensionsConfigurationJsonPkgVer>
+    <MicrosoftExtensionsHostingPkgVer>8.0.1</MicrosoftExtensionsHostingPkgVer>
+    <MicrosoftNETTestSdkPkgVer>[17.12.0,18.0)</MicrosoftNETTestSdkPkgVer>
     <OpenTelemetryExporterInMemoryPkgVer>$(OpenTelemetryCoreLatestVersion)</OpenTelemetryExporterInMemoryPkgVer>
-    <OpenTelemetryExporterInMemoryLatestPreReleasePkgVer>$(OpenTelemetryCoreLatestPrereleaseVersion)</OpenTelemetryExporterInMemoryLatestPreReleasePkgVer>
-    <XUnitRunnerVisualStudioPkgVer>[2.4.3,3.0)</XUnitRunnerVisualStudioPkgVer>
-    <XUnitPkgVer>[2.4.2,3.0)</XUnitPkgVer>
-</PropertyGroup>
+    <!-- OmniSharp/VS Code requires TargetFrameworks to be in descending order for IntelliSense and analysis. -->
+    <SupportedNetTargets>net9.0;net8.0</SupportedNetTargets>
+    <XUnitRunnerVisualStudioPkgVer>[2.8.2,3.0)</XUnitRunnerVisualStudioPkgVer>
+    <XUnitPkgVer>[2.9.3,3.0)</XUnitPkgVer>
+    <WiremockNetPkgVer>[1.7.0,2.0)</WiremockNetPkgVer>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(MicrosoftNETTestSdkPkgVer)" />
+    <PackageReference Include="xunit" Version="$(XUnitPkgVer)" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="$(XUnitRunnerVisualStudioPkgVer)" PrivateAssets="All" />
+  </ItemGroup>
+
+  <Target Name="SkipVSTestForInvalidTargetFramework" BeforeTargets="VSTest" Condition="'$(IsTestProject)' == 'true'">
+    <!-- Note: When running dotnet test from CLI with the framework parameter
+    errors will be generated for projects which do not implement the requested
+    target. In order to enable running tests for a given framework across a
+    solution/project with mixed targets (eg: dotnet test
+    opentelemetry-dotnet-contrib.sln -f net462) we convert this into a skip
+    message only. -->
+    <PropertyGroup Condition="$(TargetFrameworks.Contains($(TargetFramework))) != 'true'">
+      <_SkipTests>true</_SkipTests>
+      <IsTestProject>false</IsTestProject>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Skipping test execution for '$(TargetPath)' because it does not contain the '$(TargetFramework)' target." Condition="'$(_SkipTests)' == 'true'" />
+  </Target>
 
 </Project>

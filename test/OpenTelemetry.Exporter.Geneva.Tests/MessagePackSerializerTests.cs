@@ -1,23 +1,11 @@
-// <copyright file="MessagePackSerializerTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
+#nullable disable
+
 using System.Globalization;
 using System.Text;
+using OpenTelemetry.Exporter.Geneva.MsgPack;
 using Xunit;
 using Xunit.Sdk;
 
@@ -28,22 +16,20 @@ public class MessagePackSerializerTests
     private void AssertBytes(byte[] expected, byte[] actual, int length)
     {
         Assert.Equal(expected.Length, length);
-        for (int i = 0; i < length; i++)
+        for (var i = 0; i < length; i++)
         {
-            byte expectedByte = expected[i];
-            byte actualByte = actual[i];
+            var expectedByte = expected[i];
+            var actualByte = actual[i];
 
-            Assert.True(
-                expectedByte == actualByte,
-                string.Format($"Expected: '{(byte)expectedByte}', Actual: '{(byte)actualByte}' at offset {i}."));
+            Assert.Equal(expectedByte, actualByte);
         }
     }
 
-    private void MessagePackSerializer_TestSerialization(object obj)
+    private void MessagePackSerializer_TestSerialization<T>(T value)
     {
         var buffer = new byte[64 * 1024];
-        var length = MessagePackSerializer.Serialize(buffer, 0, obj);
-        this.AssertBytes(MessagePack.MessagePackSerializer.Serialize(obj), buffer, length);
+        var length = MessagePackSerializer.Serialize(buffer, 0, value);
+        this.AssertBytes(MessagePack.MessagePackSerializer.Serialize(value), buffer, length);
     }
 
     private void MessagePackSerializer_TestASCIIStringSerialization(string input)
@@ -148,7 +134,7 @@ public class MessagePackSerializerTests
     [Fact]
     public void MessagePackSerializer_Null()
     {
-        this.MessagePackSerializer_TestSerialization(null);
+        this.MessagePackSerializer_TestSerialization<object>(null);
     }
 
     [Fact]
@@ -162,7 +148,7 @@ public class MessagePackSerializerTests
     public void MessagePackSerializer_Int()
     {
         // 8 bits
-        for (sbyte value = sbyte.MinValue; value < sbyte.MaxValue; value++)
+        for (var value = sbyte.MinValue; value < sbyte.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization(value);
         }
@@ -170,7 +156,7 @@ public class MessagePackSerializerTests
         this.MessagePackSerializer_TestSerialization(sbyte.MaxValue);
 
         // 16 bits
-        for (short value = short.MinValue; value < short.MaxValue; value++)
+        for (var value = short.MinValue; value < short.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization(value);
         }
@@ -180,20 +166,20 @@ public class MessagePackSerializerTests
         // 32 bits
         this.MessagePackSerializer_TestSerialization(int.MinValue);
         this.MessagePackSerializer_TestSerialization(int.MinValue + 1);
-        this.MessagePackSerializer_TestSerialization((int)short.MinValue - 1);
+        this.MessagePackSerializer_TestSerialization(short.MinValue - 1);
         this.MessagePackSerializer_TestSerialization((int)short.MinValue);
-        this.MessagePackSerializer_TestSerialization((int)short.MinValue + 1);
-        this.MessagePackSerializer_TestSerialization((int)sbyte.MinValue - 1);
-        for (sbyte value = sbyte.MinValue; value < sbyte.MaxValue; value++)
+        this.MessagePackSerializer_TestSerialization(short.MinValue + 1);
+        this.MessagePackSerializer_TestSerialization(sbyte.MinValue - 1);
+        for (var value = sbyte.MinValue; value < sbyte.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization((int)value);
         }
 
         this.MessagePackSerializer_TestSerialization((int)sbyte.MaxValue);
-        this.MessagePackSerializer_TestSerialization((int)sbyte.MaxValue + 1);
-        this.MessagePackSerializer_TestSerialization((int)short.MaxValue - 1);
+        this.MessagePackSerializer_TestSerialization(sbyte.MaxValue + 1);
+        this.MessagePackSerializer_TestSerialization(short.MaxValue - 1);
         this.MessagePackSerializer_TestSerialization((int)short.MaxValue);
-        this.MessagePackSerializer_TestSerialization((int)short.MaxValue + 1);
+        this.MessagePackSerializer_TestSerialization(short.MaxValue + 1);
         this.MessagePackSerializer_TestSerialization(int.MaxValue - 1);
         this.MessagePackSerializer_TestSerialization(int.MaxValue);
 
@@ -207,7 +193,7 @@ public class MessagePackSerializerTests
         this.MessagePackSerializer_TestSerialization((long)short.MinValue);
         this.MessagePackSerializer_TestSerialization((long)short.MinValue + 1);
         this.MessagePackSerializer_TestSerialization((long)sbyte.MinValue - 1);
-        for (sbyte value = sbyte.MinValue; value < sbyte.MaxValue; value++)
+        for (var value = sbyte.MinValue; value < sbyte.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization((long)value);
         }
@@ -228,7 +214,7 @@ public class MessagePackSerializerTests
     public void MessagePackSerializer_UInt()
     {
         // 8 bits
-        for (byte value = byte.MinValue; value < byte.MaxValue; value++)
+        for (var value = byte.MinValue; value < byte.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization(value);
         }
@@ -236,7 +222,7 @@ public class MessagePackSerializerTests
         this.MessagePackSerializer_TestSerialization(byte.MaxValue);
 
         // 16 bits
-        for (ushort value = ushort.MinValue; value < ushort.MaxValue; value++)
+        for (var value = ushort.MinValue; value < ushort.MaxValue; value++)
         {
             this.MessagePackSerializer_TestSerialization(value);
         }

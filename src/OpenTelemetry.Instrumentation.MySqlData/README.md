@@ -1,12 +1,25 @@
 # MySqlData Instrumentation for OpenTelemetry
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.MySqlData.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MySqlData)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.MySqlData.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MySqlData)
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.MySqlData)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MySqlData)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.MySqlData)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MySqlData)
 
 This is an
 [Instrumentation Library](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library),
 which instruments [MySql.Data](https://www.nuget.org/packages/MySql.Data)
 and collects telemetry about database operations.
+
+## Deprecated
+
+> [!IMPORTANT]
+> **This only works with Mysql.Data v8.0.32 (and earlier, where supported)**.
+> Mysql.Data v8.1.0 and later have built-in direct support for Open Telemetry
+> via `ActivitySource`.
+
+To instrument Mysql.Data v8.1.0+ you need to configure the OpenTelemetry SDK
+to listen to the `ActivitySource` used by the library by calling
+`AddSource("connector-net")` on the `TracerProviderBuilder`. Alternatively,
+you can add the nuget package [MySQL.Data.OpenTelemetry](https://www.nuget.org/packages/MySql.Data.OpenTelemetry)
+and call extension method `AddConnectorNet()` on the `TracerProviderBuilder`.
 
 ## Steps to enable OpenTelemetry.Instrumentation.MySqlData
 
@@ -47,12 +60,12 @@ public class Program
 
 For an ASP.NET Core application, adding instrumentation is typically done in
 the `ConfigureServices` of your `Startup` class. Refer to documentation for
-[OpenTelemetry.Instrumentation.AspNetCore](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/src/OpenTelemetry.Instrumentation.AspNetCore/README.md).
+[OpenTelemetry.Instrumentation.AspNetCore](../OpenTelemetry.Instrumentation.AspNetCore/README.md).
 
 For an ASP.NET application, adding instrumentation is typically done in the
 `Global.asax.cs`. Refer to documentation for [OpenTelemetry.Instrumentation.AspNet](../OpenTelemetry.Instrumentation.AspNet/README.md).
 
-> **Note**
+> [!NOTE]
 > If you are using `Mysql.Data` 8.0.31 or later, please add
 option `Logging=true` in your connection string to enable tracing.
 See issue #691 for details.
@@ -65,13 +78,13 @@ This instrumentation can be configured to change the default behavior by using
 ### Capturing 'db.statement'
 
 The `MySqlDataInstrumentationOptions` class exposes several properties that can be
-used to configure how the [`db.statement`](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/database.md#call-level-attributes)
+used to configure how the [`db.statement`](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/database/mysql.md)
 attribute is captured upon execution of a query.
 
 #### SetDbStatement
 
 The `SetDbStatement` property can be used to control whether this instrumentation
-should set the [`db.statement`](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/database.md#call-level-attributes)
+should set the [`db.statement`](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/database/mysql.md)
 attribute to the text of the `MySqlCommand` being executed.
 
 Since `CommandType.Text` might contain sensitive data, SQL capturing is
@@ -111,7 +124,7 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
 ### RecordException
 
 This option can be set to instruct the instrumentation to record Exceptions
-as Activity [events](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/exceptions.md).
+as Activity [events](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/exceptions/exceptions-spans.md).
 
 > Due to the limitation of this library's implementation, We cannot get the raw `MysqlException`,
 > only exception message is available.
@@ -130,4 +143,4 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
 
 * [OpenTelemetry Project](https://opentelemetry.io/)
 
-* [OpenTelemetry semantic conventions for database calls](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/database.md)
+* [OpenTelemetry semantic conventions for MySQL](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/database/mysql.md)

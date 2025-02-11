@@ -1,20 +1,6 @@
-// <copyright file="TelemetryHttpModule.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics;
 using System.Reflection;
 using System.Web;
@@ -69,7 +55,7 @@ public class TelemetryHttpModule : IHttpModule
             // OnExecuteRequestStep is available starting with 4.7.1
             try
             {
-                OnExecuteRequestStepMethodInfo.Invoke(context, new object[] { (Action<HttpContextBase, Action>)this.OnExecuteRequestStep });
+                OnExecuteRequestStepMethodInfo.Invoke(context, [(Action<HttpContextBase, Action>)this.OnExecuteRequestStep]);
             }
             catch (Exception e)
             {
@@ -94,11 +80,11 @@ public class TelemetryHttpModule : IHttpModule
     private void Application_EndRequest(object sender, EventArgs e)
     {
         AspNetTelemetryEventSource.Log.TraceCallback("Application_EndRequest");
-        bool trackActivity = true;
+        var trackActivity = true;
 
         var context = ((HttpApplication)sender).Context;
 
-        if (!ActivityHelper.HasStarted(context, out Activity aspNetActivity))
+        if (!ActivityHelper.HasStarted(context, out var aspNetActivity))
         {
             // Rewrite: In case of rewrite, a new request context is created, called the child request, and it goes through the entire IIS/ASP.NET integrated pipeline.
             // The child request can be mapped to any of the handlers configured in IIS, and it's execution is no different than it would be if it was received via the HTTP stack.
@@ -133,7 +119,7 @@ public class TelemetryHttpModule : IHttpModule
         var exception = context.Error;
         if (exception != null)
         {
-            if (!ActivityHelper.HasStarted(context, out Activity aspNetActivity))
+            if (!ActivityHelper.HasStarted(context, out var aspNetActivity))
             {
                 aspNetActivity = ActivityHelper.StartAspNetActivity(Options.TextMapPropagator, context, Options.OnRequestStartedCallback);
             }

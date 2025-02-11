@@ -1,25 +1,10 @@
-// <copyright file="RuntimeMetrics.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Reflection;
-#if NET6_0_OR_GREATER
-using System.Threading;
+using OpenTelemetry.Internal;
+#if NET
 using JitInfo = System.Runtime.JitInfo;
 #endif
 
@@ -28,24 +13,27 @@ namespace OpenTelemetry.Instrumentation.Runtime;
 /// <summary>
 /// .NET runtime instrumentation.
 /// </summary>
-internal class RuntimeMetrics
+internal sealed class RuntimeMetrics
 {
-    internal static readonly AssemblyName AssemblyName = typeof(RuntimeMetrics).Assembly.GetName();
-    internal static readonly Meter MeterInstance = new(AssemblyName.Name!, AssemblyName.Version?.ToString());
+    internal static readonly Assembly Assembly = typeof(RuntimeMetrics).Assembly;
+    internal static readonly AssemblyName AssemblyName = Assembly.GetName();
+    internal static readonly Meter MeterInstance = new(AssemblyName.Name!, Assembly.GetPackageVersion());
 
-#if NET6_0_OR_GREATER
+#if NET
     private const long NanosecondsPerTick = 100;
 #endif
     private const int NumberOfGenerations = 3;
 
-    private static readonly string[] GenNames = new string[] { "gen0", "gen1", "gen2", "loh", "poh" };
+    private static readonly string[] GenNames = ["gen0", "gen1", "gen2", "loh", "poh"];
+#if NET
     private static bool isGcInfoAvailable;
+#endif
 
     static RuntimeMetrics()
     {
         MeterInstance.CreateObservableCounter(
             "process.runtime.dotnet.gc.collections.count",
-            () => GetGarbageCollectionCounts(),
+            GetGarbageCollectionCounts,
             description: "Number of garbage collections that have occurred since process start.");
 
         MeterInstance.CreateObservableUpDownCounter(
@@ -54,7 +42,7 @@ internal class RuntimeMetrics
             unit: "bytes",
             description: "Count of bytes currently in use by objects in the GC heap that haven't been collected yet. Fragmentation and other GC committed memory pools are excluded.");
 
-#if NET6_0_OR_GREATER
+#if NET
         MeterInstance.CreateObservableCounter(
             "process.runtime.dotnet.gc.allocations.size",
             () => GC.GetTotalAllocatedBytes(),
@@ -65,85 +53,64 @@ internal class RuntimeMetrics
             "process.runtime.dotnet.gc.committed_memory.size",
             () =>
             {
-                if (!IsGcInfoAvailable)
-                {
-                    return Array.Empty<Measurement<long>>();
-                }
-
-                return new Measurement<long>[] { new(GC.GetGCMemoryInfo().TotalCommittedBytes) };
+                return !IsGcInfoAvailable ? Array.Empty<Measurement<long>>() : [new(GC.GetGCMemoryInfo().TotalCommittedBytes)];
             },
             unit: "bytes",
             description: "The amount of committed virtual memory for the managed GC heap, as observed during the latest garbage collection. Committed virtual memory may be larger than the heap size because it includes both memory for storing existing objects (the heap size) and some extra memory that is ready to handle newly allocated objects in the future. The value will be unavailable until at least one garbage collection has occurred.");
 
-        // GC.GetGCMemoryInfo().GenerationInfo[i].SizeAfterBytes is better but it has a bug in .NET 6. See context in https://github.com/open-telemetry/opentelemetry-dotnet-contrib/issues/496
-        Func<int, ulong>? getGenerationSize = null;
-        bool isCodeRunningOnBuggyRuntimeVersion = Environment.Version.Major == 6;
-        if (isCodeRunningOnBuggyRuntimeVersion)
-        {
-            var mi = typeof(GC).GetMethod("GetGenerationSize", BindingFlags.NonPublic | BindingFlags.Static);
-            if (mi != null)
+        MeterInstance.CreateObservableUpDownCounter(
+            "process.runtime.dotnet.gc.heap.size",
+            () =>
             {
-                getGenerationSize = mi.CreateDelegate<Func<int, ulong>>();
-            }
-        }
-
-        // Either Environment.Version is not 6 or (it's 6 but internal API GC.GetGenerationSize is valid)
-        if (!isCodeRunningOnBuggyRuntimeVersion || getGenerationSize != null)
-        {
-            MeterInstance.CreateObservableUpDownCounter(
-                "process.runtime.dotnet.gc.heap.size",
-                () =>
+                if (!IsGcInfoAvailable)
                 {
-                    if (!IsGcInfoAvailable)
-                    {
-                        return Array.Empty<Measurement<long>>();
-                    }
+                    return [];
+                }
 
-                    var generationInfo = GC.GetGCMemoryInfo().GenerationInfo;
-                    Measurement<long>[] measurements = new Measurement<long>[generationInfo.Length];
-                    int maxSupportedLength = Math.Min(generationInfo.Length, GenNames.Length);
-                    for (int i = 0; i < maxSupportedLength; ++i)
-                    {
-                        if (isCodeRunningOnBuggyRuntimeVersion)
-                        {
-                            measurements[i] = new((long)getGenerationSize!(i), new KeyValuePair<string, object?>("generation", GenNames[i]));
-                        }
-                        else
-                        {
-                            measurements[i] = new(generationInfo[i].SizeAfterBytes, new KeyValuePair<string, object?>("generation", GenNames[i]));
-                        }
-                    }
-
-                    return measurements;
-                },
-                unit: "bytes",
-                description: "The heap size (including fragmentation), as observed during the latest garbage collection. The value will be unavailable until at least one garbage collection has occurred.");
-        }
-
-        // Not valid until .NET 7 where the bug in the API is fixed. See context in https://github.com/open-telemetry/opentelemetry-dotnet-contrib/issues/496
-        if (Environment.Version.Major >= 7)
-        {
-            MeterInstance.CreateObservableUpDownCounter(
-                "process.runtime.dotnet.gc.heap.fragmentation.size",
-                () =>
+                var generationInfo = GC.GetGCMemoryInfo().GenerationInfo;
+                var measurements = new Measurement<long>[generationInfo.Length];
+                var maxSupportedLength = Math.Min(generationInfo.Length, GenNames.Length);
+                for (var i = 0; i < maxSupportedLength; ++i)
                 {
-                    if (!IsGcInfoAvailable)
-                    {
-                        return Array.Empty<Measurement<long>>();
-                    }
+                    measurements[i] = new(generationInfo[i].SizeAfterBytes, new KeyValuePair<string, object?>("generation", GenNames[i]));
+                }
 
-                    var generationInfo = GC.GetGCMemoryInfo().GenerationInfo;
-                    Measurement<long>[] measurements = new Measurement<long>[generationInfo.Length];
-                    int maxSupportedLength = Math.Min(generationInfo.Length, GenNames.Length);
-                    for (int i = 0; i < maxSupportedLength; ++i)
-                    {
-                        measurements[i] = new(generationInfo[i].FragmentationAfterBytes, new KeyValuePair<string, object?>("generation", GenNames[i]));
-                    }
+                return measurements;
+            },
+            unit: "bytes",
+            description: "The heap size (including fragmentation), as observed during the latest garbage collection. The value will be unavailable until at least one garbage collection has occurred.");
 
-                    return measurements;
-                },
-                unit: "bytes",
-                description: "The heap fragmentation, as observed during the latest garbage collection. The value will be unavailable until at least one garbage collection has occurred.");
+        MeterInstance.CreateObservableUpDownCounter(
+            "process.runtime.dotnet.gc.heap.fragmentation.size",
+            () =>
+            {
+                if (!IsGcInfoAvailable)
+                {
+                    return [];
+                }
+
+                var generationInfo = GC.GetGCMemoryInfo().GenerationInfo;
+                var measurements = new Measurement<long>[generationInfo.Length];
+                var maxSupportedLength = Math.Min(generationInfo.Length, GenNames.Length);
+                for (var i = 0; i < maxSupportedLength; ++i)
+                {
+                    measurements[i] = new(generationInfo[i].FragmentationAfterBytes, new KeyValuePair<string, object?>("generation", GenNames[i]));
+                }
+
+                return measurements;
+            },
+            unit: "bytes",
+            description: "The heap fragmentation, as observed during the latest garbage collection. The value will be unavailable until at least one garbage collection has occurred.");
+
+        var mi = typeof(GC).GetMethod("GetTotalPauseDuration", BindingFlags.Public | BindingFlags.Static);
+        var getTotalPauseDuration = mi?.CreateDelegate<Func<TimeSpan>>();
+        if (getTotalPauseDuration != null)
+        {
+            MeterInstance.CreateObservableCounter(
+                "process.runtime.dotnet.gc.duration",
+                () => getTotalPauseDuration().Ticks * NanosecondsPerTick,
+                unit: "ns",
+                description: "The total amount of time paused in GC since the process start.");
         }
 
         MeterInstance.CreateObservableCounter(
@@ -203,15 +170,17 @@ internal class RuntimeMetrics
             exceptionCounter.Add(1);
         };
     }
-
+#pragma warning disable SA1313
     /// <summary>
     /// Initializes a new instance of the <see cref="RuntimeMetrics"/> class.
     /// </summary>
-    /// <param name="options">The options to define the metrics.</param>
-    public RuntimeMetrics(RuntimeInstrumentationOptions options)
+    /// <param name="_1">The options to define the metrics.</param>
+    public RuntimeMetrics(RuntimeInstrumentationOptions _1)
+#pragma warning restore SA1313
     {
     }
 
+#if NET
     private static bool IsGcInfoAvailable
     {
         get
@@ -229,12 +198,13 @@ internal class RuntimeMetrics
             return isGcInfoAvailable;
         }
     }
+#endif
 
     private static IEnumerable<Measurement<long>> GetGarbageCollectionCounts()
     {
         long collectionsFromHigherGeneration = 0;
 
-        for (int gen = NumberOfGenerations - 1; gen >= 0; --gen)
+        for (var gen = NumberOfGenerations - 1; gen >= 0; --gen)
         {
             long collectionsFromThisGeneration = GC.CollectionCount(gen);
 

@@ -1,23 +1,10 @@
-// <copyright file="EntityFrameworkDiagnosticListener.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Data;
 using System.Diagnostics;
-using OpenTelemetry.Trace;
+using System.Reflection;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Instrumentation.EntityFrameworkCore.Implementation;
 
@@ -31,32 +18,32 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
     internal const string EntityFrameworkCoreCommandError = "Microsoft.EntityFrameworkCore.Database.Command.CommandError";
 
     internal const string AttributePeerService = "peer.service";
+    internal const string AttributeServerAddress = "server.address";
     internal const string AttributeDbSystem = "db.system";
     internal const string AttributeDbName = "db.name";
+    internal const string AttributeDbNamespace = "db.namespace";
     internal const string AttributeDbStatement = "db.statement";
+    internal const string AttributeDbQueryText = "db.query.text";
 
-    internal static readonly string ActivitySourceName = typeof(EntityFrameworkDiagnosticListener).Assembly.GetName().Name;
+    internal static readonly Assembly Assembly = typeof(EntityFrameworkDiagnosticListener).Assembly;
+    internal static readonly string ActivitySourceName = Assembly.GetName().Name;
     internal static readonly string ActivityName = ActivitySourceName + ".Execute";
+    internal static readonly ActivitySource SqlClientActivitySource = new(ActivitySourceName, Assembly.GetPackageVersion());
 
-    private static readonly Version Version = typeof(EntityFrameworkDiagnosticListener).Assembly.GetName().Version;
-#pragma warning disable SA1202 // Elements should be ordered by access <- In this case, Version MUST come before SqlClientActivitySource otherwise null ref exception is thrown.
-    internal static readonly ActivitySource SqlClientActivitySource = new ActivitySource(ActivitySourceName, Version.ToString());
-#pragma warning restore SA1202 // Elements should be ordered by access
-
-    private readonly PropertyFetcher<object> commandFetcher = new PropertyFetcher<object>("Command");
-    private readonly PropertyFetcher<object> connectionFetcher = new PropertyFetcher<object>("Connection");
-    private readonly PropertyFetcher<object> dbContextFetcher = new PropertyFetcher<object>("Context");
-    private readonly PropertyFetcher<object> dbContextDatabaseFetcher = new PropertyFetcher<object>("Database");
-    private readonly PropertyFetcher<string> providerNameFetcher = new PropertyFetcher<string>("ProviderName");
-    private readonly PropertyFetcher<object> dataSourceFetcher = new PropertyFetcher<object>("DataSource");
-    private readonly PropertyFetcher<object> databaseFetcher = new PropertyFetcher<object>("Database");
-    private readonly PropertyFetcher<CommandType> commandTypeFetcher = new PropertyFetcher<CommandType>("CommandType");
-    private readonly PropertyFetcher<string> commandTextFetcher = new PropertyFetcher<string>("CommandText");
-    private readonly PropertyFetcher<Exception> exceptionFetcher = new PropertyFetcher<Exception>("Exception");
+    private readonly PropertyFetcher<object> commandFetcher = new("Command");
+    private readonly PropertyFetcher<object> connectionFetcher = new("Connection");
+    private readonly PropertyFetcher<object> dbContextFetcher = new("Context");
+    private readonly PropertyFetcher<object> dbContextDatabaseFetcher = new("Database");
+    private readonly PropertyFetcher<string> providerNameFetcher = new("ProviderName");
+    private readonly PropertyFetcher<object> dataSourceFetcher = new("DataSource");
+    private readonly PropertyFetcher<object> databaseFetcher = new("Database");
+    private readonly PropertyFetcher<CommandType> commandTypeFetcher = new("CommandType");
+    private readonly PropertyFetcher<string> commandTextFetcher = new("CommandText");
+    private readonly PropertyFetcher<Exception> exceptionFetcher = new("Exception");
 
     private readonly EntityFrameworkInstrumentationOptions options;
 
-    public EntityFrameworkDiagnosticListener(string sourceName, EntityFrameworkInstrumentationOptions options)
+    public EntityFrameworkDiagnosticListener(string sourceName, EntityFrameworkInstrumentationOptions? options)
         : base(sourceName)
     {
         this.options = options ?? new EntityFrameworkInstrumentationOptions();
@@ -64,8 +51,10 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
 
     public override bool SupportsNullActivity => true;
 
-    public override void OnCustom(string name, Activity activity, object payload)
+    public override void OnEventWritten(string name, object? payload)
     {
+        var activity = Activity.Current;
+
         switch (name)
         {
             case EntityFrameworkCoreCommandCreated:
@@ -118,6 +107,7 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
                                 break;
                             case "Oracle.EntityFrameworkCore":
                             case "Devart.Data.Oracle.EFCore":
+                            case "Devart.Data.Oracle.Entity.EFCore":
                                 activity.AddTag(AttributeDbSystem, "oracle");
                                 break;
                             case "Microsoft.EntityFrameworkCore.InMemory":
@@ -152,10 +142,19 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
                         }
 
                         var dataSource = (string)this.dataSourceFetcher.Fetch(connection);
-                        activity.AddTag(AttributeDbName, database);
                         if (!string.IsNullOrEmpty(dataSource))
                         {
-                            activity.AddTag(AttributePeerService, dataSource);
+                            activity.AddTag(AttributeServerAddress, dataSource);
+                        }
+
+                        if (this.options.EmitOldAttributes)
+                        {
+                            activity.AddTag(AttributeDbName, database);
+                        }
+
+                        if (this.options.EmitNewAttributes)
+                        {
+                            activity.AddTag(AttributeDbNamespace, database);
                         }
                     }
                 }
@@ -179,31 +178,68 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
                     {
                         var command = this.commandFetcher.Fetch(payload);
 
+                        try
+                        {
+                            var dbContext = this.dbContextFetcher.Fetch(payload);
+                            var dbContextDatabase = this.dbContextDatabaseFetcher.Fetch(dbContext);
+                            var providerName = this.providerNameFetcher.Fetch(dbContextDatabase);
+
+                            if (command is IDbCommand typedCommand && this.options.Filter?.Invoke(providerName, typedCommand) == false)
+                            {
+                                EntityFrameworkInstrumentationEventSource.Log.CommandIsFilteredOut(activity.OperationName);
+                                activity.IsAllDataRequested = false;
+                                activity.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+                                return;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            EntityFrameworkInstrumentationEventSource.Log.CommandFilterException(ex);
+                            activity.IsAllDataRequested = false;
+                            activity.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+                            return;
+                        }
+
                         if (this.commandTypeFetcher.Fetch(command) is CommandType commandType)
                         {
                             var commandText = this.commandTextFetcher.Fetch(command);
                             switch (commandType)
                             {
                                 case CommandType.StoredProcedure:
-                                    activity.AddTag(SpanAttributeConstants.DatabaseStatementTypeKey, nameof(CommandType.StoredProcedure));
                                     if (this.options.SetDbStatementForStoredProcedure)
                                     {
-                                        activity.AddTag(AttributeDbStatement, commandText);
+                                        if (this.options.EmitOldAttributes)
+                                        {
+                                            activity.AddTag(AttributeDbStatement, commandText);
+                                        }
+
+                                        if (this.options.EmitNewAttributes)
+                                        {
+                                            activity.AddTag(AttributeDbQueryText, commandText);
+                                        }
                                     }
 
                                     break;
 
                                 case CommandType.Text:
-                                    activity.AddTag(SpanAttributeConstants.DatabaseStatementTypeKey, nameof(CommandType.Text));
                                     if (this.options.SetDbStatementForText)
                                     {
-                                        activity.AddTag(AttributeDbStatement, commandText);
+                                        if (this.options.EmitOldAttributes)
+                                        {
+                                            activity.AddTag(AttributeDbStatement, commandText);
+                                        }
+
+                                        if (this.options.EmitNewAttributes)
+                                        {
+                                            activity.AddTag(AttributeDbQueryText, commandText);
+                                        }
                                     }
 
                                     break;
 
                                 case CommandType.TableDirect:
-                                    activity.AddTag(SpanAttributeConstants.DatabaseStatementTypeKey, nameof(CommandType.TableDirect));
+                                    break;
+                                default:
                                     break;
                             }
                         }
@@ -261,7 +297,7 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
                         {
                             if (this.exceptionFetcher.Fetch(payload) is Exception exception)
                             {
-                                activity.SetStatus(Status.Error.WithDescription(exception.Message));
+                                activity.SetStatus(ActivityStatusCode.Error, exception.Message);
                             }
                             else
                             {
@@ -275,6 +311,8 @@ internal sealed class EntityFrameworkDiagnosticListener : ListenerHandler
                     }
                 }
 
+                break;
+            default:
                 break;
         }
     }

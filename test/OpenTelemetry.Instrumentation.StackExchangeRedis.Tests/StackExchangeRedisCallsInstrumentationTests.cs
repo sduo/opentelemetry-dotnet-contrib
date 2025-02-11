@@ -1,24 +1,10 @@
-// <copyright file="StackExchangeRedisCallsInstrumentationTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
-using System;
+// SPDX-License-Identifier: Apache-2.0
+
 using System.Diagnostics;
 using System.Net;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Moq;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenTelemetry.Tests;
 using OpenTelemetry.Trace;
 using StackExchange.Redis;
@@ -39,7 +25,7 @@ public class StackExchangeRedisCallsInstrumentationTests
      */
 
     private const string RedisEndPointEnvVarName = "OTEL_REDISENDPOINT";
-    private static readonly string RedisEndPoint = SkipUnlessEnvVarFoundTheoryAttribute.GetEnvironmentVariable(RedisEndPointEnvVarName);
+    private static readonly string? RedisEndPoint = SkipUnlessEnvVarFoundTheoryAttribute.GetEnvironmentVariable(RedisEndPointEnvVarName);
 
     [Trait("CategoryName", "RedisIntegrationTests")]
     [SkipUnlessEnvVarFoundTheory(RedisEndPointEnvVarName)]
@@ -50,16 +36,16 @@ public class StackExchangeRedisCallsInstrumentationTests
         {
             AbortOnConnectFail = true,
         };
-        connectionOptions.EndPoints.Add(RedisEndPoint);
+        connectionOptions.EndPoints.Add(RedisEndPoint!);
 
         using var connection = ConnectionMultiplexer.Connect(connectionOptions);
         var db = connection.GetDatabase();
         db.KeyDelete("key1");
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
         var sampler = new TestSampler();
         using (Sdk.CreateTracerProviderBuilder()
-                   .AddProcessor(activityProcessor.Object)
+                   .AddInMemoryExporter(exportedItems)
                    .SetSampler(sampler)
                    .AddRedisInstrumentation(connection, c => c.SetVerboseDatabaseStatements = true)
                    .Build())
@@ -71,7 +57,7 @@ public class StackExchangeRedisCallsInstrumentationTests
 
             Assert.False(redisValue.HasValue);
 
-            bool set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
+            var set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
 
             Assert.True(set);
 
@@ -83,42 +69,60 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         // Disposing SDK should flush the Redis profiling session immediately.
 
-        Assert.Equal(11, activityProcessor.Invocations.Count);
+        Assert.Equal(4, exportedItems.Count);
 
-        var scriptActivity = (Activity)activityProcessor.Invocations[1].Arguments[0];
-        Assert.Equal("EVAL", scriptActivity.DisplayName);
-        Assert.Equal("EVAL redis.call('set', ARGV[1], ARGV[2])", scriptActivity.GetTagValue(SemanticConventions.AttributeDbStatement));
+        Assert.Equal("EVAL", exportedItems[0].DisplayName);
+        Assert.Equal("EVAL redis.call('set', ARGV[1], ARGV[2])", exportedItems[0].GetTagValue(SemanticConventions.AttributeDbStatement));
 
-        VerifyActivityData((Activity)activityProcessor.Invocations[3].Arguments[0], false, connection.GetEndPoints()[0], true);
-        VerifyActivityData((Activity)activityProcessor.Invocations[5].Arguments[0], true, connection.GetEndPoints()[0], true);
-        VerifyActivityData((Activity)activityProcessor.Invocations[7].Arguments[0], false, connection.GetEndPoints()[0], true);
+        VerifyActivityData(exportedItems[1], false, connection.GetEndPoints()[0], true);
+        VerifyActivityData(exportedItems[2], true, connection.GetEndPoints()[0], true);
+        VerifyActivityData(exportedItems[3], false, connection.GetEndPoints()[0], true);
         VerifySamplingParameters(sampler.LatestSamplingParameters);
     }
 
     [Trait("CategoryName", "RedisIntegrationTests")]
     [SkipUnlessEnvVarFoundTheory(RedisEndPointEnvVarName)]
-    [InlineData("value1")]
-    public void SuccessfulCommandTest(string value)
+    [InlineData("value1", null)]
+    [InlineData("value1", "serviceKey")]
+    public void SuccessfulCommandTest(string value, string? serviceKey)
     {
         var connectionOptions = new ConfigurationOptions
         {
             AbortOnConnectFail = true,
         };
-        connectionOptions.EndPoints.Add(RedisEndPoint);
+        connectionOptions.EndPoints.Add(RedisEndPoint!);
 
-        using var connection = ConnectionMultiplexer.Connect(connectionOptions);
-
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        ConnectionMultiplexer? connection = null;
+        var exportedItems = new List<Activity>();
         var sampler = new TestSampler();
         using (Sdk.CreateTracerProviderBuilder()
-                   .AddProcessor(activityProcessor.Object)
-                   .SetSampler(sampler)
-                   .AddRedisInstrumentation(connection, c => c.SetVerboseDatabaseStatements = false)
-                   .Build())
+            .ConfigureServices(services =>
+            {
+                if (serviceKey is null)
+                {
+                    services.TryAddSingleton<IConnectionMultiplexer>(sp =>
+                    {
+                        return connection = ConnectionMultiplexer.Connect(connectionOptions);
+                    });
+                }
+                else
+                {
+                    services.TryAddKeyedSingleton<IConnectionMultiplexer>(serviceKey, (sp, key) =>
+                    {
+                        return connection = ConnectionMultiplexer.Connect(connectionOptions);
+                    });
+                }
+            })
+            .AddInMemoryExporter(exportedItems)
+            .SetSampler(sampler)
+            .AddRedisInstrumentation(null, null, serviceKey, c => c.SetVerboseDatabaseStatements = false)
+            .Build())
         {
+            Assert.NotNull(connection);
+
             var db = connection.GetDatabase();
 
-            bool set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
+            var set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
 
             Assert.True(set);
 
@@ -130,15 +134,15 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         // Disposing SDK should flush the Redis profiling session immediately.
 
-        Assert.Equal(7, activityProcessor.Invocations.Count);
+        Assert.Equal(2, exportedItems.Count);
 
-        VerifyActivityData((Activity)activityProcessor.Invocations[1].Arguments[0], true, connection.GetEndPoints()[0], false);
-        VerifyActivityData((Activity)activityProcessor.Invocations[3].Arguments[0], false, connection.GetEndPoints()[0], false);
+        VerifyActivityData(exportedItems[0], true, connection.GetEndPoints()[0], false);
+        VerifyActivityData(exportedItems[1], false, connection.GetEndPoints()[0], false);
         VerifySamplingParameters(sampler.LatestSamplingParameters);
     }
 
     [Fact]
-    public async void ProfilerSessionUsesTheSameDefault()
+    public async Task ProfilerSessionUsesTheSameDefault()
     {
         var connectionOptions = new ConfigurationOptions
         {
@@ -148,11 +152,11 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         var connection = ConnectionMultiplexer.Connect(connectionOptions);
 
-        using var instrumentation = new StackExchangeRedisCallsInstrumentation(connection, new StackExchangeRedisCallsInstrumentationOptions());
+        using var instrumentation = new StackExchangeRedisConnectionInstrumentation(connection, name: null, new StackExchangeRedisInstrumentationOptions());
         var profilerFactory = instrumentation.GetProfilerSessionsFactory();
         var first = profilerFactory();
         var second = profilerFactory();
-        ProfilingSession third = null;
+        ProfilingSession? third = null;
         await Task.Delay(1).ContinueWith((t) => { third = profilerFactory(); });
         Assert.Equal(first, second);
         Assert.Equal(second, third);
@@ -163,31 +167,39 @@ public class StackExchangeRedisCallsInstrumentationTests
     [InlineData("value1")]
     public void CanEnrichActivityFromCommand(string value)
     {
+        StackExchangeRedisInstrumentation? instrumentation = null;
+
         var connectionOptions = new ConfigurationOptions
         {
             AbortOnConnectFail = true,
         };
-        connectionOptions.EndPoints.Add(RedisEndPoint);
-
+        connectionOptions.EndPoints.Add(RedisEndPoint!);
         using var connection = ConnectionMultiplexer.Connect(connectionOptions);
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
         var sampler = new TestSampler();
-        using (Sdk.CreateTracerProviderBuilder()
-                   .AddProcessor(activityProcessor.Object)
-                   .SetSampler(sampler)
-                   .AddRedisInstrumentation(connection, c => c.Enrich = (activity, command) =>
-                   {
-                       if (command.ElapsedTime < TimeSpan.FromMilliseconds(100))
-                       {
-                           activity.AddTag("is_fast", true);
-                       }
-                   })
-                   .Build())
+
+        var builder = Sdk.CreateTracerProviderBuilder()
+            .AddInMemoryExporter(exportedItems)
+            .SetSampler(sampler)
+            .AddRedisInstrumentation(c => c.Enrich = (activity, command) =>
+            {
+                if (command.ElapsedTime < TimeSpan.FromMilliseconds(100))
+                {
+                    activity.AddTag("is_fast", true);
+                }
+            })
+            .ConfigureRedisInstrumentation(i => instrumentation = i);
+
+        using (builder.Build())
         {
+            Assert.NotNull(instrumentation);
+
+            instrumentation.AddConnection(connection);
+
             var db = connection.GetDatabase();
 
-            bool set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
+            var set = db.StringSet("key1", value, TimeSpan.FromSeconds(60));
 
             Assert.True(set);
 
@@ -199,12 +211,10 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         // Disposing SDK should flush the Redis profiling session immediately.
 
-        Assert.Equal(7, activityProcessor.Invocations.Count);
+        Assert.Equal(2, exportedItems.Count);
 
-        var setActivity = (Activity)activityProcessor.Invocations[1].Arguments[0];
-        Assert.Equal(true, setActivity.GetTagValue("is_fast"));
-        var getActivity = (Activity)activityProcessor.Invocations[3].Arguments[0];
-        Assert.Equal(true, getActivity.GetTagValue("is_fast"));
+        Assert.Equal(true, exportedItems[0].GetTagValue("is_fast"));
+        Assert.Equal(true, exportedItems[1].GetTagValue("is_fast"));
     }
 
     [Fact]
@@ -218,11 +228,11 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         var connection = ConnectionMultiplexer.Connect(connectionOptions);
 
-        using var instrumentation = new StackExchangeRedisCallsInstrumentation(connection, new StackExchangeRedisCallsInstrumentationOptions());
+        using var instrumentation = new StackExchangeRedisConnectionInstrumentation(connection, name: null, new StackExchangeRedisInstrumentationOptions());
         var profilerFactory = instrumentation.GetProfilerSessionsFactory();
 
         // start a root level activity
-        using Activity rootActivity = new Activity("Parent")
+        using var rootActivity = new Activity("Parent")
             .SetParentId(ActivityTraceId.CreateRandom(), ActivitySpanId.CreateRandom(), ActivityTraceFlags.Recorded)
             .Start();
 
@@ -230,13 +240,12 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         // get an initial profiler from root activity
         Activity.Current = rootActivity;
-        ProfilingSession profiler0 = profilerFactory();
+        var profiler0 = profilerFactory();
 
         // expect different result from synchronous child activity
-        ProfilingSession profiler1;
         using (Activity.Current = new Activity("Child-Span-1").SetParentId(rootActivity.Id).Start())
         {
-            profiler1 = profilerFactory();
+            var profiler1 = profilerFactory();
             Assert.NotSame(profiler0, profiler1);
         }
 
@@ -258,11 +267,11 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         var connection = ConnectionMultiplexer.Connect(connectionOptions);
 
-        using var instrumentation = new StackExchangeRedisCallsInstrumentation(connection, new StackExchangeRedisCallsInstrumentationOptions());
+        using var instrumentation = new StackExchangeRedisConnectionInstrumentation(connection, name: null, new StackExchangeRedisInstrumentationOptions());
         var profilerFactory = instrumentation.GetProfilerSessionsFactory();
 
         // start a root level activity
-        using Activity rootActivity = new Activity("Parent")
+        using var rootActivity = new Activity("Parent")
             .SetParentId(ActivityTraceId.CreateRandom(), ActivitySpanId.CreateRandom(), ActivityTraceFlags.Recorded)
             .Start();
 
@@ -270,10 +279,10 @@ public class StackExchangeRedisCallsInstrumentationTests
 
         // get an initial profiler from root activity
         Activity.Current = rootActivity;
-        ProfilingSession profiler0 = profilerFactory();
+        var profiler0 = profilerFactory();
 
         // expect different result from synchronous child activity
-        ProfilingSession profiler1;
+        ProfilingSession? profiler1;
         using (Activity.Current = new Activity("Child-Span-1").SetParentId(rootActivity.Id).Start())
         {
             profiler1 = profilerFactory();
@@ -286,9 +295,9 @@ public class StackExchangeRedisCallsInstrumentationTests
         using (Activity.Current = new Activity("Child-Span-2").SetParentId(rootActivity.Id).Start())
         {
             // lose async context on purpose
-            await Task.Delay(100).ConfigureAwait(false);
+            await Task.Delay(100);
 
-            ProfilingSession profiler2 = profilerFactory();
+            var profiler2 = profilerFactory();
             Assert.NotSame(profiler0, profiler2);
             Assert.NotSame(profiler1, profiler2);
         }
@@ -296,30 +305,15 @@ public class StackExchangeRedisCallsInstrumentationTests
         Activity.Current = rootActivity;
 
         // ensure same result back in root activity
-        ProfilingSession profiles3 = profilerFactory();
+        var profiles3 = profilerFactory();
         Assert.Same(profiler0, profiles3);
-    }
-
-    [Fact]
-    public void StackExchangeRedis_BadArgs()
-    {
-        TracerProviderBuilder builder = null;
-        Assert.Throws<ArgumentNullException>(() => builder.AddRedisInstrumentation(null));
-
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            Sdk.CreateTracerProviderBuilder()
-                .AddProcessor(activityProcessor.Object)
-                .AddRedisInstrumentation(null)
-                .Build());
-        Assert.Equal("StackExchange.Redis IConnectionMultiplexer could not be resolved through application IServiceProvider", exception.Message);
     }
 
     [Fact]
     public void StackExchangeRedis_DependencyInjection_Success()
     {
-        bool connectionMultiplexerPickedFromDI = false;
-        bool optionsPickedFromDI = false;
+        var connectionMultiplexerPickedFromDI = false;
+        var optionsPickedFromDI = false;
 
         var connectionOptions = new ConfigurationOptions
         {
@@ -333,7 +327,7 @@ public class StackExchangeRedisCallsInstrumentationTests
             connectionMultiplexerPickedFromDI = true;
             return ConnectionMultiplexer.Connect(connectionOptions);
         });
-        services.Configure<StackExchangeRedisCallsInstrumentationOptions>(options =>
+        services.Configure<StackExchangeRedisInstrumentationOptions>(options =>
         {
             optionsPickedFromDI = true;
         });
@@ -348,15 +342,46 @@ public class StackExchangeRedisCallsInstrumentationTests
     }
 
     [Fact]
-    public void StackExchangeRedis_DependencyInjection_Failure()
+    public void StackExchangeRedis_StackExchangeRedisInstrumentation_Test()
     {
-        var services = new ServiceCollection();
+        StackExchangeRedisInstrumentation? instrumentation = null;
 
-        services.AddOpenTelemetry().WithTracing(builder => builder.AddRedisInstrumentation());
+        var connectionOptions = new ConfigurationOptions
+        {
+            AbortOnConnectFail = false,
+        };
+        connectionOptions.EndPoints.Add("localhost");
 
-        using var serviceProvider = services.BuildServiceProvider();
+        using var connection = ConnectionMultiplexer.Connect(connectionOptions);
+        var sampler = new TestSampler();
 
-        Assert.Throws<InvalidOperationException>(() => serviceProvider.GetRequiredService<TracerProvider>());
+        var builder = Sdk.CreateTracerProviderBuilder()
+            .SetSampler(sampler)
+            .AddRedisInstrumentation(c => c.Enrich = (activity, command) =>
+            {
+                if (command.ElapsedTime < TimeSpan.FromMilliseconds(100))
+                {
+                    activity.AddTag("is_fast", true);
+                }
+            })
+            .ConfigureRedisInstrumentation(i => instrumentation = i);
+
+        using (builder.Build())
+        {
+            Assert.NotNull(instrumentation);
+
+            var registration = instrumentation.AddConnection(connection);
+
+            Assert.NotEmpty(instrumentation.InstrumentedConnections);
+
+            registration.Dispose();
+
+            Assert.Empty(instrumentation.InstrumentedConnections);
+
+            instrumentation.AddConnection(connection);
+        }
+
+        Assert.Empty(instrumentation.InstrumentedConnections);
     }
 
     private static void VerifyActivityData(Activity activity, bool isSet, EndPoint endPoint, bool setCommandKey = false)
@@ -386,23 +411,25 @@ public class StackExchangeRedisCallsInstrumentationTests
             }
         }
 
-        Assert.Equal(Status.Unset, activity.GetStatus());
+        Assert.Equal(ActivityStatusCode.Unset, activity.Status);
         Assert.Equal("redis", activity.GetTagValue(SemanticConventions.AttributeDbSystem));
-        Assert.Equal(0, activity.GetTagValue(StackExchangeRedisCallsInstrumentation.RedisDatabaseIndexKeyName));
+        Assert.Equal(0, activity.GetTagValue(StackExchangeRedisConnectionInstrumentation.RedisDatabaseIndexKeyName));
 
         if (endPoint is IPEndPoint ipEndPoint)
         {
-            Assert.Equal(ipEndPoint.Address.ToString(), activity.GetTagValue(SemanticConventions.AttributeNetPeerIp));
-            Assert.Equal(ipEndPoint.Port, activity.GetTagValue(SemanticConventions.AttributeNetPeerPort));
+            Assert.Equal(ipEndPoint.Address.ToString(), activity.GetTagValue(SemanticConventions.AttributeServerAddress));
+            Assert.Equal(ipEndPoint.Port, activity.GetTagValue(SemanticConventions.AttributeServerPort));
         }
         else if (endPoint is DnsEndPoint dnsEndPoint)
         {
-            Assert.Equal(dnsEndPoint.Host, activity.GetTagValue(SemanticConventions.AttributeNetPeerName));
-            Assert.Equal(dnsEndPoint.Port, activity.GetTagValue(SemanticConventions.AttributeNetPeerPort));
+            Assert.Equal(dnsEndPoint.Host, activity.GetTagValue(SemanticConventions.AttributeServerAddress));
+            Assert.Equal(dnsEndPoint.Port, activity.GetTagValue(SemanticConventions.AttributeServerPort));
         }
         else
         {
-            Assert.Equal(endPoint.ToString(), activity.GetTagValue(SemanticConventions.AttributePeerService));
+            var tags = activity.Tags.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            Assert.DoesNotContain(SemanticConventions.AttributeServerAddress, tags.Keys);
+            Assert.DoesNotContain(SemanticConventions.AttributeServerPort, tags.Keys);
         }
     }
 
@@ -412,6 +439,6 @@ public class StackExchangeRedisCallsInstrumentationTests
         Assert.Contains(
             samplingParameters.Tags,
             kvp => kvp.Key == SemanticConventions.AttributeDbSystem
-                   && (string)kvp.Value == "redis");
+                   && (string?)kvp.Value == "redis");
     }
 }

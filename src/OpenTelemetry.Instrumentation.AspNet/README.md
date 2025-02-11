@@ -1,25 +1,23 @@
 # ASP.NET Instrumentation for OpenTelemetry
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.AspNet.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.AspNet.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Beta](../../README.md#beta)|
+| Code Owners   |  [@open-telemetry/dotnet-contrib-maintainers](https://github.com/orgs/open-telemetry/teams/dotnet-contrib-maintainers)|
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.AspNet)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.AspNet)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.AspNet)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.AspNet)
 
 This is an [Instrumentation
 Library](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library),
 which instruments [ASP.NET](https://docs.microsoft.com/aspnet/overview) and
 collect metrics and traces about incoming web requests.
 
-> **Note**
-> This component is based on the OpenTelemetry semantic conventions for
-[metrics](https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/metrics/semantic_conventions)
-and
-[traces](https://github.com/open-telemetry/opentelemetry-specification/tree/main/specification/trace/semantic_conventions).
-These conventions are
-[Experimental](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/document-status.md),
-and hence, this package is a [pre-release](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/VERSIONING.md#pre-releases).
-Until a [stable
-version](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/telemetry-stability.md)
-is released, there can be breaking changes. You can track the progress from
-[milestones](https://github.com/open-telemetry/opentelemetry-dotnet/milestone/23).
+> [!NOTE]
+> This package is a [pre-release](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/VERSIONING.md#pre-releases).
+Until a [stable version](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/telemetry-stability.md)
+is released, there can be breaking changes.
 
 ## Steps to enable OpenTelemetry.Instrumentation.AspNet
 
@@ -56,8 +54,14 @@ following shows changes required to your `Web.config` when using IIS web server.
 ### Step 3: Enable ASP.NET Instrumentation at application startup
 
 ASP.NET instrumentation must be enabled at application startup. This is
-typically done in the `Global.asax.cs` as shown below. This example also sets up
-the OpenTelemetry OTLP exporter, which requires adding the package
+typically done in the `Global.asax.cs`.
+
+#### Traces
+
+The following example demonstrates adding ASP.NET instrumentation with the
+extension method `.AddAspNetInstrumentation()` on `TracerProviderBuilder` to
+an application. This example also sets up
+the OTLP (OpenTelemetry Protocol) exporter, which requires adding the package
 [`OpenTelemetry.Exporter.OpenTelemetryProtocol`](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/src/OpenTelemetry.Exporter.OpenTelemetryProtocol/README.md)
 to the application.
 
@@ -82,17 +86,69 @@ public class WebApiApplication : HttpApplication
 }
 ```
 
-## Advanced configuration
+#### Metrics
+
+The following example demonstrates adding ASP.NET instrumentation with the
+extension method `.AddAspNetInstrumentation()` on `MeterProviderBuilder` to
+an application. This example also sets up
+the OTLP (OpenTelemetry Protocol) exporter, which requires adding the package
+[`OpenTelemetry.Exporter.OpenTelemetryProtocol`](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/src/OpenTelemetry.Exporter.OpenTelemetryProtocol/README.md)
+to the application.
+
+```csharp
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+
+public class WebApiApplication : HttpApplication
+{
+    private MeterProvider meterProvider;
+    protected void Application_Start()
+    {
+        this.meterProvider = Sdk.CreateMeterProviderBuilder()
+            .AddAspNetInstrumentation()
+            .AddOtlpExporter()
+            .Build();
+    }
+    protected void Application_End()
+    {
+        this.meterProvider?.Dispose();
+    }
+}
+```
+
+#### List of metrics produced
+
+The instrumentation is implemented based on [metrics semantic
+conventions](https://github.com/open-telemetry/semantic-conventions/blob/v1.29.0/docs/http/http-metrics.md#metric-httpserverrequestduration).
+Currently, the instrumentation supports the following metric.
+
+| Name  | Instrument Type | Unit | Description |
+|-------|-----------------|------|-------------|
+| `http.server.request.duration` | Histogram | `s` | Duration of HTTP server requests. |
+
+## Advanced trace configuration
 
 This instrumentation can be configured to change the default behavior by using
-`AspNetInstrumentationOptions`, which allows configuring `Filter` as explained
+`AspNetTraceInstrumentationOptions`, which allows configuring `Filter` as explained
 below.
 
-### Filter
+### Trace Filter
+
+> [!NOTE]
+> OpenTelemetry has the concept of a
+[Sampler](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk.md#sampling).
+When using `OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule` the
+`url.path` tag is supplied automatically to samplers when telemetry is started
+for incoming requests. It is recommended to use a sampler which inspects
+`url.path` (as opposed to the `Filter` option described below) in order to
+perform filtering as it will prevent child spans from being created and bypass
+data collection for anything NOT recorded by the sampler. The sampler approach
+will reduce the impact on the process being instrumented for all filtered
+requests.
 
 This instrumentation by default collects all the incoming http requests. It
 allows filtering of requests by using the `Filter` function in
-`AspNetInstrumentationOptions`. This defines the condition for allowable
+`AspNetTraceInstrumentationOptions`. This defines the condition for allowable
 requests. The Filter receives the `HttpContext` of the incoming request, and
 does not collect telemetry about the request if the Filter returns false or
 throws exception.
@@ -111,42 +167,37 @@ this.tracerProvider = Sdk.CreateTracerProviderBuilder()
     .Build();
 ```
 
-It is important to note that this `Filter` option is specific to this
-instrumentation. OpenTelemetry has a concept of a
-[Sampler](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk.md#sampling),
-and the `Filter` option does the filtering *before* the Sampler is invoked.
+### Trace Enrich
 
-### Enrich
-
-This option allows one to enrich the activity with additional information from
-the raw `HttpRequest`, `HttpResponse` objects. The `Enrich` action is called
+This instrumentation library provides `EnrichWithHttpRequest`,
+`EnrichWithHttpResponse` and `EnrichWithException` options that can be used to
+enrich the activity with additional information from the raw `HttpRequest`,
+`HttpResponse` and `Exception` objects respectively. These actions are called
 only when `activity.IsAllDataRequested` is `true`. It contains the activity
-itself (which can be enriched), the name of the event, and the actual raw
-object. For event name "OnStartActivity", the actual object will be
-`HttpRequest`. For event name "OnStopActivity", the actual object will be
-`HttpResponse`
+itself (which can be enriched) and the actual raw object.
 
-The following code snippet shows how to add additional tags using `Enrich`.
+The following code snippet shows how to enrich the activity using all 3
+different options.
 
 ```csharp
 this.tracerProvider = Sdk.CreateTracerProviderBuilder()
-    .AddAspNetInstrumentation((options) => options.Enrich
-        = (activity, eventName, rawObject) =>
+    .AddAspNetInstrumentation(o =>
     {
-        if (eventName.Equals("OnStartActivity"))
+        o.EnrichWithHttpRequest = (activity, httpRequest) =>
         {
-            if (rawObject is HttpRequest httpRequest)
-            {
-                activity.SetTag("physicalPath", httpRequest.PhysicalPath);
-            }
-        }
-        else if (eventName.Equals("OnStopActivity"))
+            activity.SetTag("physicalPath", httpRequest.PhysicalPath);
+        };
+        o.EnrichWithHttpResponse = (activity, httpResponse) =>
         {
-            if (rawObject is HttpResponse httpResponse)
+            activity.SetTag("responseType", httpResponse.ContentType);
+        };
+        o.EnrichWithException = (activity, exception) =>
+        {
+            if (exception.Source != null)
             {
-                activity.SetTag("responseType", httpResponse.ContentType);
+                activity.SetTag("exception.source", exception.Source);
             }
-        }
+        };
     })
     .Build();
 ```
@@ -161,6 +212,32 @@ access to `HttpRequest` and `HttpResponse`.
 This instrumentation automatically sets Activity Status to Error if an unhandled
 exception is thrown. Additionally, `RecordException` feature may be turned on,
 to store the exception to the Activity itself as ActivityEvent.
+
+## Advanced metric configuration
+
+This instrumentation can be configured to change the default behavior by using
+`AspNetMetricsInstrumentationOptions` as explained below.
+
+### Metric Enrich
+
+This option allows one to enrich the metric with additional information from
+the `HttpContext`. The `Enrich` action is always called unless the metric was
+filtered. The callback allows for modifying the tag list. If the callback
+throws an exception the metric will still be recorded.
+
+```csharp
+this.meterProvider = Sdk.CreateMeterProviderBuilder()
+    .AddAspNetInstrumentation(options => options.Enrich =
+        (HttpContext context, ref TagList tags) =>
+    {
+        // Add request content type to the metric tags.
+        if (!string.IsNullOrEmpty(context.Request.ContentType))
+        {
+            tags.Add("custom.content.type", context.Request.ContentType);
+        }
+    })
+    .Build();
+```
 
 ## References
 

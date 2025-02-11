@@ -1,21 +1,6 @@
-// <copyright file="InstanaSpanTest.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -43,9 +28,9 @@ internal class InstanaSpanTransformInfo
 #pragma warning restore SA1649 // File name should match first type name
 #pragma warning restore SA1402 // File may only contain a single type
 {
-    public string StatusCode { get; internal set; }
+    public string? StatusCode { get; internal set; }
 
-    public string StatusDesc { get; internal set; }
+    public string? StatusDesc { get; internal set; }
 
     public bool HasExceptionEvent { get; internal set; }
 
@@ -54,31 +39,31 @@ internal class InstanaSpanTransformInfo
 
 internal class InstanaSpanTest
 {
-    public InstanaSpanTransformInfo TransformInfo { get; set; }
+    public InstanaSpanTransformInfo? TransformInfo { get; set; }
 
     [JsonProperty]
-    public string N { get; internal set; }
+    public string? N { get; internal set; }
 
     [JsonProperty]
-    public string T { get; internal set; }
+    public string? T { get; internal set; }
 
     [JsonProperty]
-    public string Lt { get; internal set; }
+    public string? Lt { get; internal set; }
 
     [JsonProperty]
-    public From F { get; internal set; }
+    public From? F { get; internal set; }
 
     [JsonProperty]
-    public string P { get; internal set; }
+    public string? P { get; internal set; }
 
     [JsonProperty]
-    public string S { get; internal set; }
+    public string? S { get; internal set; }
 
     [JsonProperty]
-    public SpanKind K { get; internal set; }
+    public SpanKind? K { get; internal set; }
 
     [JsonProperty]
-    public Data Data { get; internal set; }
+    public Data? Data { get; internal set; }
 
     [JsonProperty]
     public long Ts { get; internal set; }
@@ -98,10 +83,10 @@ internal class From
 #pragma warning restore SA1402 // File may only contain a single type
 {
     [JsonProperty]
-    public string E { get; internal set; }
+    public string? E { get; internal set; }
 
     [JsonProperty]
-    public string H { get; internal set; }
+    public string? H { get; internal set; }
 }
 
 [JsonConverter(typeof(DataConverter))]
@@ -111,14 +96,14 @@ internal class Data
 {
     [JsonProperty]
 #pragma warning disable SA1300 // Element should begin with upper-case letter
-    public Dictionary<string, string> data { get; internal set; }
+    public Dictionary<string, string>? data { get; internal set; }
 #pragma warning restore SA1300 // Element should begin with upper-case letter
 
     [JsonProperty]
-    public Dictionary<string, string> Tags { get; internal set; }
+    public Dictionary<string, string>? Tags { get; internal set; }
 
     [JsonProperty]
-    public List<SpanEvent> Events { get; internal set; }
+    public List<SpanEvent>? Events { get; internal set; }
 }
 
 #pragma warning disable SA1402 // File may only contain a single type
@@ -126,13 +111,13 @@ internal class SpanEvent
 #pragma warning restore SA1402 // File may only contain a single type
 {
     [JsonProperty]
-    public string Name { get; internal set; }
+    public string? Name { get; internal set; }
 
     [JsonProperty]
     public long Ts { get; internal set; }
 
     [JsonProperty]
-    public Dictionary<string, string> Tags { get; internal set; }
+    public Dictionary<string, string>? Tags { get; internal set; }
 }
 
 #pragma warning disable SA1402 // File may only contain a single type
@@ -148,7 +133,7 @@ internal class DataConverter : JsonConverter
         return objectType == typeof(Data);
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
         if (reader.TokenType == JsonToken.Null)
         {
@@ -160,23 +145,19 @@ internal class DataConverter : JsonConverter
         }
         else
         {
-            JObject obj = JObject.Load(reader);
+            var obj = JObject.Load(reader);
             var data = obj.Root;
             if (data != null)
             {
                 var newData = new Data();
                 foreach (var field in data)
                 {
-                    if (((JProperty)field).Name == "tags" ||
-                        ((JProperty)field).Name == "events")
+                    if (((JProperty)field).Name is "tags" or "events")
                     {
                         continue;
                     }
 
-                    if (newData.data == null)
-                    {
-                        newData.data = new Dictionary<string, string>();
-                    }
+                    newData.data ??= [];
 
                     newData.data[((JProperty)field).Name] = ((JProperty)field).Value.ToString();
                 }
@@ -199,7 +180,7 @@ internal class DataConverter : JsonConverter
         }
     }
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
         throw new NotImplementedException();
     }

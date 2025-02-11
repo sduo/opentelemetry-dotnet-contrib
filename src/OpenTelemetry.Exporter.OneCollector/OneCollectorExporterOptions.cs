@@ -1,18 +1,5 @@
-// <copyright file="OneCollectorExporterOptions.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.ComponentModel.DataAnnotations;
 
@@ -51,12 +38,6 @@ public abstract class OneCollectorExporterOptions
     /// </summary>
     internal string? TenantToken { get; private set; }
 
-    /// <summary>
-    /// Gets or sets OneCollector serialization format. Default value: <see
-    /// cref="OneCollectorExporterSerializationFormatType.CommonSchemaV4JsonStream"/>.
-    /// </summary>
-    internal OneCollectorExporterSerializationFormatType SerializationFormat { get; set; } = OneCollectorExporterSerializationFormatType.CommonSchemaV4JsonStream;
-
     internal virtual void Validate()
     {
         if (string.IsNullOrWhiteSpace(this.ConnectionString))
@@ -70,7 +51,7 @@ public abstract class OneCollectorExporterOptions
             throw new OneCollectorExporterValidationException("Instrumentation key was not specified on connection string.");
         }
 
-#if NET6_0_OR_GREATER || NETSTANDARD2_1_OR_GREATER
+#if NET || NETSTANDARD2_1_OR_GREATER
         var positionOfFirstDash = this.InstrumentationKey.IndexOf('-', StringComparison.OrdinalIgnoreCase);
 #else
         var positionOfFirstDash = this.InstrumentationKey!.IndexOf('-');

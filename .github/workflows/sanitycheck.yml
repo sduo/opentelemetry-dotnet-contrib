@@ -1,18 +1,15 @@
-name: sanitycheck
+name: Lint - Spelling & Encoding
 
 on:
-  push:
-    branches: [ 'main*', 'instrumentation*', 'exporter*', 'extensions*' ]
-  pull_request:
-    branches: [ 'main*', 'instrumentation*', 'exporter*', 'extensions*' ]
+  workflow_call:
 
 jobs:
-  misspell:
-    runs-on: ubuntu-latest
+  run-misspell:
+    runs-on: ubuntu-22.04
 
     steps:
     - name: check out code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: install misspell
       run: |
@@ -22,12 +19,12 @@ jobs:
     - name: run misspell
       run: ./bin/misspell -error .
 
-  encoding:
-    runs-on: ubuntu-latest
+  run-sanitycheck:
+    runs-on: ubuntu-22.04
 
     steps:
     - name: check out code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: detect non-ASCII encoding and trailing space
-      run: python3 ./build/sanitycheck.py
+      run: python3 ./build/scripts/sanitycheck.py

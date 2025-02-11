@@ -1,23 +1,8 @@
-// <copyright file="ExporterEventSource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics.Tracing;
-using System.Globalization;
-using System.Threading;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Exporter.Geneva;
 
@@ -29,6 +14,11 @@ internal sealed class ExporterEventSource : EventSource
     private const int EVENT_ID_LOG = 2; // Failed to send Log
     private const int EVENT_ID_METRIC = 3; // Failed to send Metric
     private const int EVENT_ID_ERROR = 4; // Other common exporter exceptions
+    private const int EVENT_ID_OTLP_PROTOBUF_METRIC = 5; // Failed to serialize metric
+    private const int EVENT_ID_COMPLETED_EXPORT = 6; // Completed export
+    private const int EVENT_ID_TRANSPORT_ERROR = 7; // Transport error
+    private const int EVENT_ID_TRANSPORT_EXCEPTION = 8; // Transport exception
+    private const int EVENT_ID_TRANSPORT_INFO = 9; // Transport info
 
     [NonEvent]
     public void FailedToSendTraceData(Exception ex)
@@ -43,7 +33,7 @@ internal sealed class ExporterEventSource : EventSource
             // descrs[0].Size = ((arg1.Length + 1) * 2);
             // I'm assuming it calculates the size of string, then it should be:
             // (count of chars) * sizeof(char) + sizeof(Length:int) = (str.Length * 2 + 4).
-            this.FailedToSendTraceData(ToInvariantString(ex));
+            this.FailedToSendTraceData(ex.ToInvariantString());
         }
     }
 
@@ -53,7 +43,7 @@ internal sealed class ExporterEventSource : EventSource
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
             // TODO: Do not hit ETW size limit even for external library exception stack.
-            this.FailedToSendLogData(ToInvariantString(ex));
+            this.FailedToSendLogData(ex.ToInvariantString());
         }
     }
 
@@ -63,7 +53,7 @@ internal sealed class ExporterEventSource : EventSource
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
             // TODO: Do not hit ETW size limit even for external library exception stack.
-            this.FailedToSendMetricData(monitoringAccount, metricNamespace, metricName, ToInvariantString(ex));
+            this.FailedToSendMetricData(monitoringAccount, metricNamespace, metricName, ex.ToInvariantString());
         }
     }
 
@@ -73,7 +63,27 @@ internal sealed class ExporterEventSource : EventSource
         if (Log.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
             // TODO: Do not hit ETW size limit even for external library exception stack.
-            this.ExporterException(message, ToInvariantString(ex));
+            this.ExporterException(message, ex.ToInvariantString());
+        }
+    }
+
+    [NonEvent]
+    public void FailedToSerializeMetric(string metricName, Exception ex)
+    {
+        if (Log.IsEnabled(EventLevel.Error, EventKeywords.All))
+        {
+            // TODO: Do not hit ETW size limit even for external library exception stack.
+            this.FailedToSerializeMetric(metricName, ex.ToInvariantString());
+        }
+    }
+
+    [NonEvent]
+    public void TransportException(string transportType, string message, Exception ex)
+    {
+        if (Log.IsEnabled(EventLevel.Error, EventKeywords.All))
+        {
+            // TODO: Do not hit ETW size limit even for external library exception stack.
+            this.TransportException(transportType, message, ex.ToInvariantString());
         }
     }
 
@@ -101,22 +111,33 @@ internal sealed class ExporterEventSource : EventSource
         this.WriteEvent(EVENT_ID_ERROR, message, error);
     }
 
-    /// <summary>
-    /// Returns a culture-independent string representation of the given <paramref name="exception"/> object,
-    /// appropriate for diagnostics tracing.
-    /// </summary>
-    private static string ToInvariantString(Exception exception)
+    [Event(EVENT_ID_OTLP_PROTOBUF_METRIC, Message = "Failed to serialize '{0}' metric, Exception: {1}", Level = EventLevel.Error)]
+    public void FailedToSerializeMetric(string metricName, string error)
     {
-        var originalUICulture = Thread.CurrentThread.CurrentUICulture;
+        this.WriteEvent(EVENT_ID_OTLP_PROTOBUF_METRIC, metricName, error);
+    }
 
-        try
-        {
-            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-            return exception.ToString();
-        }
-        finally
-        {
-            Thread.CurrentThread.CurrentUICulture = originalUICulture;
-        }
+    [Event(EVENT_ID_COMPLETED_EXPORT, Message = "'{0}' completed data export.", Level = EventLevel.Informational)]
+    public void ExportCompleted(string exporterName)
+    {
+        this.WriteEvent(EVENT_ID_COMPLETED_EXPORT, exporterName);
+    }
+
+    [Event(EVENT_ID_TRANSPORT_ERROR, Message = "Transport '{0}' error. Message: {1}", Level = EventLevel.Error)]
+    public void TransportError(string transportType, string error)
+    {
+        this.WriteEvent(EVENT_ID_TRANSPORT_ERROR, transportType, error);
+    }
+
+    [Event(EVENT_ID_TRANSPORT_EXCEPTION, Message = "Transport '{0}' error. Message: {1}, Exception: {2}", Level = EventLevel.Error)]
+    public void TransportException(string transportType, string error, string ex)
+    {
+        this.WriteEvent(EVENT_ID_TRANSPORT_EXCEPTION, transportType, error, ex);
+    }
+
+    [Event(EVENT_ID_TRANSPORT_INFO, Message = "Transport '{0}' information. Message: {1}", Level = EventLevel.Informational)]
+    public void TransportInformation(string transportType, string error)
+    {
+        this.WriteEvent(EVENT_ID_TRANSPORT_INFO, transportType, error);
     }
 }

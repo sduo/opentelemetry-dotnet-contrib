@@ -2,6 +2,85 @@
 
 ## Unreleased
 
+## 1.11.0
+
+Released 2025-Jan-27
+
+* Updated OpenTelemetry core component version(s) to `1.11.1`.
+  ([#2477](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2477))
+
+## 1.10.0
+
+Released 2024-Dec-05
+
+* Drop support for .NET 6 as this target is no longer supported and add .NET 8 target.
+  ([#2155](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2155)),
+  ([#2325](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2325))
+
+* Updated OpenTelemetry core component version(s) to `1.10.0`.
+  ([#2317](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2317))
+
+* Built-in .NET `System.Runtime` metrics are reported for .NET 9 and greater.
+  For details about each individual metric check [.NET Runtime metrics docs page](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/built-in-metrics-runtime).
+  ([#2339](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2339))
+
+## 1.9.0
+
+Released 2024-Jun-18
+
+* Updated OpenTelemetry core component version(s) to `1.9.0`.
+  ([#1888](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1888))
+
+## 1.8.1
+
+Released 2024-May-20
+
+* Update `OpenTelemetry.Api` to `1.8.1`.
+  ([#1668](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1668))
+
+## 1.8.0
+
+Released 2024-Apr-05
+
+* `Meter.Version` is set to NuGet package version.
+  ([#1624](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1624))
+
+* Update `OpenTelemetry.Api` to `1.8.0`.
+  ([#1635](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1635))
+
+## 1.7.0
+
+Released 2024-Jan-03
+
+* Update `OpenTelemetry.Api` to `1.7.0`.
+  ([#1486](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1486))
+
+## 1.5.1
+
+Released 2023-Sep-06
+
+* Add a metric `process.runtime.dotnet.gc.duration` for total paused duration in
+  GC for .NET 7 and greater versions
+  ([#1239](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1239))
+
+* Update OpenTelemetry API to 1.5.1
+  ([#1255](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1255))
+
+## 1.5.0
+
+Released 2023-Jun-06
+
+* Update OpenTelemetry API to 1.5.0
+  ([#1220](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1220))
+
+## 1.4.0
+
+Released 2023-Jun-01
+
+* Bumped the version to `1.4.0` to keep it in sync with the release versions of
+  `OpenTelemetry.API`. This makes it more intuitive for the users to figure out
+  what version of core packages would work with a given version of this package.
+
 ## 1.1.0-rc.2
 
 Released 2023-Feb-27
@@ -99,8 +178,10 @@ Released 2022-Jul-19
   exception.count-> exceptions.count, attribute name: gen->generation) and
   descriptions
   ([#475](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/475))
+
 * Change API for GC Heap Size for .NET 6 where the API has a bug
   ([#495](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/495))
+
 * Remove gc.heap.fragmentation.size metrics due to buggy API on .NET 6
   ([#509](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/509))
 
@@ -119,10 +200,12 @@ which are not .NET Runtime specific.
 
 ## 0.2.0-alpha.1
 
-* Updated OTel SDK package version to 1.3.0
+* Updated OpenTelemetry SDK package version to 1.3.0
   ([#411](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/411))
+
 * Fix some bugs in Runtime metrics
   ([#409](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/409))
+
 * Add GC heap size and refactor GC count as multi-dimensional metrics in Runtime
   metrics
   ([#412](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/412))

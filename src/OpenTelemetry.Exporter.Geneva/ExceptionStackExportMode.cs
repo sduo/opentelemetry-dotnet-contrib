@@ -1,25 +1,39 @@
-// <copyright file="ExceptionStackExportMode.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 namespace OpenTelemetry.Exporter.Geneva;
 
+/// <summary>
+/// Defines modes for exporting exception stack traces. Currently applicable only to the Logs signal.
+/// </summary>
 public enum ExceptionStackExportMode
 {
+    /// <summary>
+    /// Exception stack traces are dropped and not exported.
+    /// </summary>
     Drop,
+
+    /// <summary>
+    /// Exports exception stack traces as a string using the <c>ToString()</c> implementation of the exception.
+    /// The output is formatted in a culture-agnostic manner and is primarily designed for human readability.
+    /// See <see href="https://learn.microsoft.com/dotnet/api/system.exception.tostring"/>.
+    /// </summary>
+    /// <remarks>
+    /// Typically, <c>ToString()</c> includes information about inner exceptions and additional details,
+    /// such as the exception message. However, this behavior is not guaranteed, as custom exceptions
+    /// can override <c>ToString()</c> to return arbitrary content.
+    /// </remarks>
     ExportAsString,
+
+    /// <summary>
+    /// Exports exception stack traces as a string using the <c>StackTrace</c> property of the exception.
+    /// See <see href="https://learn.microsoft.com/dotnet/api/system.exception.stacktrace"/>.
+    /// </summary>
+    /// <remarks>
+    /// This represents the raw stack trace and does not include inner exception details.
+    /// Note that the <c>StackTrace</c> property can also be overridden in custom exception implementations.
+    /// </remarks>
+    ExportAsStackTraceString,
 
     // ExportAsArrayOfStacks - future if stacks can be exported in more structured way
 }

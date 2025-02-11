@@ -1,23 +1,7 @@
-// <copyright file="EntityFrameworkInstrumentationEventSource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics.Tracing;
-using System.Globalization;
-using System.Threading;
 using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Instrumentation.EntityFrameworkCore.Implementation;
@@ -25,14 +9,14 @@ namespace OpenTelemetry.Instrumentation.EntityFrameworkCore.Implementation;
 [EventSource(Name = "OpenTelemetry-Instrumentation-EntityFrameworkCore")]
 internal class EntityFrameworkInstrumentationEventSource : EventSource
 {
-    public static EntityFrameworkInstrumentationEventSource Log = new EntityFrameworkInstrumentationEventSource();
+    public static EntityFrameworkInstrumentationEventSource Log = new();
 
     [NonEvent]
     public void UnknownErrorProcessingEvent(string handlerName, string eventName, Exception ex)
     {
         if (this.IsEnabled(EventLevel.Error, (EventKeywords)(-1)))
         {
-            this.UnknownErrorProcessingEvent(handlerName, eventName, ToInvariantString(ex));
+            this.UnknownErrorProcessingEvent(handlerName, eventName, ex.ToInvariantString());
         }
     }
 
@@ -42,6 +26,15 @@ internal class EntityFrameworkInstrumentationEventSource : EventSource
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
             this.EnrichmentException(eventName, ex.ToInvariantString());
+        }
+    }
+
+    [NonEvent]
+    public void CommandFilterException(Exception ex)
+    {
+        if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
+        {
+            this.CommandFilterException(ex.ToInvariantString());
         }
     }
 
@@ -63,12 +56,6 @@ internal class EntityFrameworkInstrumentationEventSource : EventSource
         this.WriteEvent(3, handlerName, eventName);
     }
 
-    [Event(4, Message = "Payload is invalid in event '{1}' from handler '{0}', span will not be recorded.", Level = EventLevel.Warning)]
-    public void InvalidPayload(string handlerName, string eventName)
-    {
-        this.WriteEvent(4, handlerName, eventName);
-    }
-
     [Event(5, Message = "Enrichment threw exception. Exception {0}.", Level = EventLevel.Error)]
     public void EnrichmentException(string eventName, string exception)
     {
@@ -78,22 +65,15 @@ internal class EntityFrameworkInstrumentationEventSource : EventSource
         }
     }
 
-    /// <summary>
-    /// Returns a culture-independent string representation of the given <paramref name="exception"/> object,
-    /// appropriate for diagnostics tracing.
-    /// </summary>
-    private static string ToInvariantString(Exception exception)
+    [Event(6, Message = "Command is filtered out. Activity {0}", Level = EventLevel.Verbose)]
+    public void CommandIsFilteredOut(string activityName)
     {
-        var originalUICulture = Thread.CurrentThread.CurrentUICulture;
+        this.WriteEvent(6, activityName);
+    }
 
-        try
-        {
-            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-            return exception.ToString();
-        }
-        finally
-        {
-            Thread.CurrentThread.CurrentUICulture = originalUICulture;
-        }
+    [Event(7, Message = "Command filter threw exception. Command will not be collected. Exception {0}.", Level = EventLevel.Error)]
+    public void CommandFilterException(string exception)
+    {
+        this.WriteEvent(7, exception);
     }
 }

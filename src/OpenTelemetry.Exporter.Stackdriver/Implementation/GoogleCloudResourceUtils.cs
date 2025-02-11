@@ -1,21 +1,6 @@
-// <copyright file="GoogleCloudResourceUtils.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.IO;
 using Google.Api;
 
 namespace OpenTelemetry.Exporter.Stackdriver.Implementation;
@@ -32,7 +17,7 @@ public static class GoogleCloudResourceUtils
     /// the method returns null.
     /// </summary>
     /// <returns>Google Cloud Project ID.</returns>
-    public static string GetProjectId()
+    public static string? GetProjectId()
     {
         // Try to detect projectId from the environment where the code is running
         var instance = Google.Api.Gax.Platform.Instance();
@@ -60,7 +45,7 @@ public static class GoogleCloudResourceUtils
     /// </summary>
     /// <param name="projectId">The project id.</param>
     /// <returns>Stackdriver Monitored Resource.</returns>
-    public static MonitoredResource GetDefaultResource(string projectId)
+    public static MonitoredResource GetDefaultResource(string? projectId)
     {
         var resource = new MonitoredResource();
         resource.Type = Constants.Global;

@@ -1,22 +1,8 @@
-// <copyright file="TracerProviderBuilderExtensions.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics;
-using System.Threading;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Trace;
 
@@ -47,13 +33,44 @@ public static class TracerProviderBuilderExtensions
         Func<Activity, bool> predicate,
         int timeoutMilliseconds = 10000)
     {
+#if NET
+        ArgumentNullException.ThrowIfNull(builder);
+#else
         if (builder == null)
         {
             throw new ArgumentNullException(nameof(builder));
         }
+#endif
 
 #pragma warning disable CA2000 // Dispose objects before losing scope
         return builder.AddProcessor(new AutoFlushActivityProcessor(predicate, timeoutMilliseconds));
 #pragma warning restore CA2000 // Dispose objects before losing scope
+    }
+
+    /// <summary>
+    /// Adds the <see cref="BaggageActivityProcessor"/> to the <see cref="TracerProviderBuilder"/>.
+    /// </summary>
+    /// <param name="builder"><see cref="TracerProviderBuilder"/> to add the <see cref="BaggageActivityProcessor"/> to.</param>
+    /// <param name="baggageKeyPredicate">Predicate to determine which baggage keys should be added to the activity.</param>
+    /// <returns>The instance of <see cref="TracerProviderBuilder"/> to chain the calls.</returns>
+    public static TracerProviderBuilder AddBaggageActivityProcessor(
+        this TracerProviderBuilder builder,
+        Predicate<string> baggageKeyPredicate)
+    {
+        Guard.ThrowIfNull(builder);
+        Guard.ThrowIfNull(baggageKeyPredicate);
+
+        return builder.AddProcessor(b => new BaggageActivityProcessor(baggageKey =>
+        {
+            try
+            {
+                return baggageKeyPredicate(baggageKey);
+            }
+            catch (Exception exception)
+            {
+                OpenTelemetryExtensionsEventSource.Log.BaggageKeyActivityPredicateException(baggageKey, exception.Message);
+                return false;
+            }
+        }));
     }
 }

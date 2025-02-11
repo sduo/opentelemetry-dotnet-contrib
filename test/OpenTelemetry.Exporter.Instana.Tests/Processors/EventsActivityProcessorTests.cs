@@ -1,25 +1,7 @@
-// <copyright file="EventsActivityProcessorTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-#nullable enable
-
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using OpenTelemetry.Exporter.Instana.Implementation;
 using OpenTelemetry.Exporter.Instana.Implementation.Processors;
 using Xunit;
@@ -28,38 +10,46 @@ namespace OpenTelemetry.Exporter.Instana.Tests.Processors;
 
 public class EventsActivityProcessorTests
 {
-    private EventsActivityProcessor eventsActivityProcessor = new EventsActivityProcessor();
+    private readonly EventsActivityProcessor eventsActivityProcessor = new();
 
     [Fact]
     public async Task ProcessAsync()
     {
-        var activityTagsCollection = new ActivityTagsCollection();
-        activityTagsCollection.Add(new KeyValuePair<string, object?>("eventTagKey", "eventTagValue"));
+        var activityTagsCollection = new ActivityTagsCollection { new KeyValuePair<string, object?>("eventTagKey", "eventTagValue") };
         var activityEvent = new ActivityEvent(
             "testActivityEvent",
             DateTimeOffset.MinValue,
             activityTagsCollection);
 
-        var activityTagsCollection2 = new ActivityTagsCollection();
-        activityTagsCollection2.Add(new KeyValuePair<string, object?>("eventTagKey2", "eventTagValue2"));
+        var activityTagsCollection2 = new ActivityTagsCollection { new KeyValuePair<string, object?>("eventTagKey2", "eventTagValue2") };
         var activityEvent2 = new ActivityEvent(
             "testActivityEvent2",
             DateTimeOffset.MaxValue,
             activityTagsCollection2);
 
-        Activity activity = new Activity("testOperationName");
+        var activity = new Activity("testOperationName");
         activity.AddEvent(activityEvent);
         activity.AddEvent(activityEvent2);
-        InstanaSpan instanaSpan = new InstanaSpan() { TransformInfo = new Implementation.InstanaSpanTransformInfo() };
-        await this.eventsActivityProcessor.ProcessAsync(activity, instanaSpan);
+        var instanaSpan = new InstanaSpan() { TransformInfo = new Implementation.InstanaSpanTransformInfo() };
+        if (this.eventsActivityProcessor != null)
+        {
+            await this.eventsActivityProcessor.ProcessAsync(activity, instanaSpan);
+        }
 
-        Assert.True(instanaSpan.Ec == 0);
-        Assert.True(instanaSpan.Data.Events.Count == 2);
-        Assert.True(instanaSpan.Data.Events[0].Name == "testActivityEvent");
+        Assert.NotNull(instanaSpan.Data?.Events);
+        Assert.Equal(0, instanaSpan.Ec);
+        Assert.Equal(2, instanaSpan.Data.Events.Count);
+        Assert.Equal("testActivityEvent", instanaSpan.Data.Events[0].Name);
         Assert.True(instanaSpan.Data.Events[0].Ts > 0);
-        Assert.True(instanaSpan.Data.Events[0].Tags["eventTagKey"] == "eventTagValue");
-        Assert.True(instanaSpan.Data.Events[1].Name == "testActivityEvent2");
+        Assert.NotNull(instanaSpan.Data?.Events[0]?.Tags);
+        var eventTagValue = string.Empty;
+        _ = instanaSpan.Data.Events[0].Tags?.TryGetValue("eventTagKey", out eventTagValue);
+        Assert.Equal("eventTagValue", eventTagValue);
+        Assert.Equal("testActivityEvent2", instanaSpan.Data.Events[1].Name);
         Assert.True(instanaSpan.Data.Events[1].Ts > 0);
-        Assert.True(instanaSpan.Data.Events[1].Tags["eventTagKey2"] == "eventTagValue2");
+        Assert.NotNull(instanaSpan.Data?.Events[1]?.Tags);
+        eventTagValue = string.Empty;
+        _ = instanaSpan.Data.Events[1].Tags?.TryGetValue("eventTagKey2", out eventTagValue);
+        Assert.Equal("eventTagValue2", eventTagValue);
     }
 }

@@ -1,27 +1,10 @@
-// <copyright file="WeatherForecastController.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
-using System.Threading.Tasks;
 using System.Web.Http;
 using Examples.AspNet.Models;
 using OpenTelemetry;
@@ -30,10 +13,10 @@ namespace Examples.AspNet.Controllers;
 
 public class WeatherForecastController : ApiController
 {
-    private static readonly string[] Summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching",
-    };
+    private static readonly string[] Summaries =
+    [
+        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+    ];
 
     [HttpGet] // For testing traditional routing. Ex: https://localhost:XXXX/api/weatherforecast
     public async Task<IEnumerable<WeatherForecast>> Get()
@@ -57,7 +40,7 @@ public class WeatherForecastController : ApiController
     {
         if (customerId < 0)
         {
-            throw new ArgumentException();
+            throw new ArgumentOutOfRangeException(nameof(customerId), "CustomerId should be 0 or greater.");
         }
 
         // Making http calls here to serve as an example of
@@ -106,7 +89,7 @@ public class WeatherForecastController : ApiController
     [HttpPost]
     public async Task<HttpResponseMessage> PostData()
     {
-        string value1 = Baggage.GetBaggage("key1");
+        var value1 = Baggage.GetBaggage("key1");
         if (string.IsNullOrEmpty(value1))
         {
             throw new InvalidOperationException("Key1 was not found on Baggage.");
@@ -124,15 +107,13 @@ public class WeatherForecastController : ApiController
         return result;
     }
 
-    private static IEnumerable<WeatherForecast> GetWeatherForecast()
+    private static WeatherForecast[] GetWeatherForecast()
     {
         var rng = new Random();
-        return Enumerable.Range(1, 5).Select(index => new WeatherForecast
-        {
-            Date = DateTime.Now.AddDays(index),
-            TemperatureC = rng.Next(-20, 55),
-            Summary = Summaries[rng.Next(Summaries.Length)],
-        })
+        return Enumerable.Range(1, 5).Select(index => new WeatherForecast(
+            date: DateTime.Now.AddDays(index),
+            temperatureC: rng.Next(-20, 55),
+            summary: Summaries[rng.Next(Summaries.Length)]))
         .ToArray();
     }
 
@@ -141,7 +122,7 @@ public class WeatherForecastController : ApiController
     {
         using var request = new HttpClient();
 
-        using var response = await request.GetAsync("http://www.google.com").ConfigureAwait(false);
+        using var response = await request.GetAsync(new Uri("http://www.google.com")).ConfigureAwait(false);
 
         response.EnsureSuccessStatusCode();
     }
@@ -149,7 +130,7 @@ public class WeatherForecastController : ApiController
     // Test dependency collection via legacy HttpWebRequest sync.
     private static void RequestGoogleHomPageViaHttpWebRequestLegacySync()
     {
-        var request = WebRequest.Create("http://www.google.com/?sync");
+        var request = WebRequest.Create(new Uri("http://www.google.com/?sync"));
 
         using var response = request.GetResponse();
     }
@@ -157,7 +138,7 @@ public class WeatherForecastController : ApiController
     // Test dependency collection via legacy HttpWebRequest async.
     private static async Task RequestGoogleHomPageViaHttpWebRequestLegacyAsync()
     {
-        var request = (HttpWebRequest)WebRequest.Create($"http://www.google.com/?async");
+        var request = (HttpWebRequest)WebRequest.Create(new Uri("http://www.google.com/?async"));
 
         using var response = await request.GetResponseAsync().ConfigureAwait(false);
     }
@@ -165,7 +146,7 @@ public class WeatherForecastController : ApiController
     // Test dependency collection via legacy HttpWebRequest IAsyncResult.
     private static void RequestGoogleHomPageViaHttpWebRequestLegacyAsyncResult()
     {
-        var request = (HttpWebRequest)WebRequest.Create($"http://www.google.com/?async");
+        var request = (HttpWebRequest)WebRequest.Create(new Uri("http://www.google.com/?async"));
 
         var asyncResult = request.BeginGetResponse(null, null);
 
@@ -181,7 +162,9 @@ public class WeatherForecastController : ApiController
 
             // This request is not available over SSL and will throw a handshake exception.
 
-            using var response = await request.GetAsync(this.Url.Content("~/subroute/10").Replace("http", "https")).ConfigureAwait(false);
+            var requestUri = this.GenerateContentRequestUri("~/subroute/10", uri => uri.Replace("http", "https"));
+
+            using var response = await request.GetAsync(requestUri).ConfigureAwait(false);
 
             Debug.Fail("Unreachable");
         }
@@ -197,7 +180,8 @@ public class WeatherForecastController : ApiController
 
         // This request will return a 500 error because customerId should be >= 0;
 
-        using var response = await request.GetAsync(this.Url.Content("~/subroute/-1")).ConfigureAwait(false);
+        using var response = await request.GetAsync(
+            this.GenerateContentRequestUri("~/subroute/-1")).ConfigureAwait(false);
 
         Debug.Assert(response.StatusCode == HttpStatusCode.InternalServerError, "response.StatusCode is InternalServerError");
     }
@@ -209,8 +193,21 @@ public class WeatherForecastController : ApiController
 
         // This request will return successfully and cause a bunch of sub-spans;
 
-        using var response = await request.GetAsync(this.Url.Content("~/subroute/10")).ConfigureAwait(false);
+        using var response = await request.GetAsync(
+            this.GenerateContentRequestUri("~/subroute/10")).ConfigureAwait(false);
 
         response.EnsureSuccessStatusCode();
+    }
+
+    private Uri GenerateContentRequestUri(string path, Func<string, string>? transform = null)
+    {
+        var rawUri = this.Url.Content(path);
+
+        if (transform != null)
+        {
+            rawUri = transform(rawUri);
+        }
+
+        return new(rawUri);
     }
 }

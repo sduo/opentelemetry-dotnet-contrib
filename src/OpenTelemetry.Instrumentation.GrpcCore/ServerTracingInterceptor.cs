@@ -1,24 +1,7 @@
-// <copyright file="ServerTracingInterceptor.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using OpenTelemetry.Context.Propagation;
@@ -180,11 +163,11 @@ public class ServerTracingInterceptor : Interceptor
                 var entry = metadata[i];
                 if (string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))
                 {
-                    return new string[1] { entry.Value };
+                    return [entry.Value];
                 }
             }
 
-            return Enumerable.Empty<string>();
+            return [];
         };
 
         /// <summary>
@@ -193,7 +176,7 @@ public class ServerTracingInterceptor : Interceptor
         /// <param name="context">The context.</param>
         /// <param name="options">The options.</param>
         public ServerRpcScope(ServerCallContext context, ServerTracingInterceptorOptions options)
-            : base(context.Method, options.RecordMessageEvents)
+            : base(context.Method, options.RecordMessageEvents, options.RecordException)
         {
             if (!GrpcCoreInstrumentation.ActivitySource.HasListeners())
             {
@@ -218,21 +201,11 @@ public class ServerTracingInterceptor : Interceptor
                 }
             }
 
-            // This if block is for unit testing only.
-            IEnumerable<KeyValuePair<string, object>> customTags = null;
-            if (options.ActivityIdentifierValue != default)
-            {
-                customTags = new List<KeyValuePair<string, object>>
-                {
-                    new KeyValuePair<string, object>(SemanticConventions.AttributeActivityIdentifier, options.ActivityIdentifierValue),
-                };
-            }
-
             var activity = GrpcCoreInstrumentation.ActivitySource.StartActivity(
                 this.FullServiceName,
                 ActivityKind.Server,
                 currentContext ?? default,
-                tags: customTags);
+                tags: options.AdditionalTags);
 
             this.SetActivity(activity);
         }

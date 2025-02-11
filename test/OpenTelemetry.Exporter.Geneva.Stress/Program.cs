@@ -1,38 +1,20 @@
-// <copyright file="Program.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using CommandLine;
+using OpenTelemetry.Exporter.Geneva.Transports;
 using OpenTelemetry.Trace;
 
 namespace OpenTelemetry.Exporter.Geneva.Stress;
 
 internal class Program
 {
+    private static readonly ActivitySource Source = new("OpenTelemetry.Exporter.Geneva.Stress");
     private static volatile bool s_bContinue = true;
     private static long s_nEvents;
-
-    private static ActivitySource source = new ActivitySource("OpenTelemetry.Exporter.Geneva.Stress");
 
     private static int Main(string[] args)
     {
@@ -56,14 +38,14 @@ internal class Program
     private class LinuxOptions
     {
         [Option('p', "path", Default = "/var/run/default_fluent.socket", HelpText = "Specify a path for Unix domain socket.")]
-        public string Path { get; set; }
+        public string? Path { get; set; }
     }
 
     [Verb("server", HelpText = "Start a dummy server on Linux.")]
     private class ServerOptions
     {
         [Option('p', "path", HelpText = "Specify a path for Unix domain socket.", Required = true)]
-        public string Path { get; set; }
+        public string? Path { get; set; }
     }
 
     [Verb("ExporterCreation", HelpText = "Validate exporter dispose behavior")]
@@ -73,18 +55,6 @@ internal class Program
 
     private static int RunExporterCreation()
     {
-        var options = new GenevaExporterOptions()
-        {
-            ConnectionString = "EtwSession=OpenTelemetry",
-            PrepopulatedFields = new Dictionary<string, object>
-            {
-                ["ver"] = "4.0",
-                ["cloud.role"] = "BusyWorker",
-                ["cloud.roleInstance"] = "CY1SCH030021417",
-                ["cloud.roleVer"] = "9.0.15289.2",
-            },
-        };
-
         for (var i = 0; i < 300000; ++i)
         {
             using var dataTransport = new EtwDataTransport("OpenTelemetry");
@@ -95,12 +65,12 @@ internal class Program
 
     private static int RunLinux(LinuxOptions options)
     {
-        return EntryPoint(() => InitTracesOnLinux(options.Path), RunTraces);
+        return EntryPoint(() => InitTracesOnLinux(options.Path!), RunTraces);
     }
 
     private static int RunServer(ServerOptions options)
     {
-        var server = new DummyServer(options.Path);
+        var server = new DummyServer(options.Path!);
         server.Start();
         return 0;
     }
@@ -120,12 +90,14 @@ internal class Program
                     if (Console.KeyAvailable)
                     {
                         var key = Console.ReadKey(true).Key;
+#pragma warning disable IDE0010 // Add missing cases
                         switch (key)
                         {
                             case ConsoleKey.Escape:
                                 s_bContinue = false;
                                 return;
                         }
+#pragma warning restore IDE0010 // Add missing cases
 
                         continue;
                     }
@@ -175,12 +147,10 @@ internal class Program
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void RunTraces()
     {
-        using (var activity = source.StartActivity("Stress"))
-        {
-            activity?.SetTag("http.method", "GET");
-            activity?.SetTag("http.url", "https://www.wikipedia.org/wiki/Rabbit");
-            activity?.SetTag("http.status_code", 200);
-        }
+        using var activity = Source.StartActivity("Stress");
+        activity?.SetTag("http.method", "GET");
+        activity?.SetTag("http.url", "https://www.wikipedia.org/wiki/Rabbit");
+        activity?.SetTag("http.status_code", 200);
     }
 
     private static void InitTracesOnLinux(string path)

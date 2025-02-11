@@ -1,25 +1,7 @@
-// <copyright file="EventCountersMetricsTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.Tracing;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using OpenTelemetry.Metrics;
 using Xunit;
 
@@ -31,7 +13,7 @@ public class EventCountersMetricsTests
     public void EventCounter()
     {
         // Arrange
-        List<Metric> metricItems = new();
+        List<Metric> metricItems = [];
         using EventSource source = new("a");
         using EventCounter counter = new("c", source);
 
@@ -41,7 +23,7 @@ public class EventCountersMetricsTests
                 options.AddEventSources(source.Name);
             })
             .AddInMemoryExporter(metricItems)
-            .Build();
+            .Build()!;
 
         // Act
         counter.WriteMetric(1997.0202);
@@ -57,7 +39,7 @@ public class EventCountersMetricsTests
     public void IncrementingEventCounter()
     {
         // Arrange
-        List<Metric> metricItems = new();
+        List<Metric> metricItems = [];
         using EventSource source = new("b");
         using IncrementingEventCounter incCounter = new("inc-c", source);
 
@@ -67,7 +49,7 @@ public class EventCountersMetricsTests
                 options.AddEventSources(source.Name);
             })
             .AddInMemoryExporter(metricItems)
-            .Build();
+            .Build()!;
 
         // Act
         incCounter.Increment(1);
@@ -85,8 +67,8 @@ public class EventCountersMetricsTests
     public void PollingCounter()
     {
         // Arrange
-        int i = 0;
-        List<Metric> metricItems = new();
+        var i = 0;
+        List<Metric> metricItems = [];
         using EventSource source = new("c");
         using PollingCounter pollCounter = new("poll-c", source, () => ++i * 10);
 
@@ -96,7 +78,7 @@ public class EventCountersMetricsTests
                 options.AddEventSources(source.Name);
             })
             .AddInMemoryExporter(metricItems)
-            .Build();
+            .Build()!;
 
         // Act
         var metric = AwaitExport(meterProvider, metricItems, expectedInstrumentName: "ec.c.poll-c");
@@ -111,8 +93,8 @@ public class EventCountersMetricsTests
     public void IncrementingPollingCounter()
     {
         // Arrange
-        int i = 1;
-        List<Metric> metricItems = new();
+        var i = 1;
+        List<Metric> metricItems = [];
         using EventSource source = new("d");
         using IncrementingPollingCounter incPollCounter = new("inc-poll-c", source, () => i++);
 
@@ -122,7 +104,7 @@ public class EventCountersMetricsTests
                 options.AddEventSources(source.Name);
             })
             .AddInMemoryExporter(metricItems)
-            .Build();
+            .Build()!;
 
         // Act
         var metric = AwaitExport(meterProvider, metricItems, expectedInstrumentName: "ec.d.inc-poll-c");
@@ -131,13 +113,6 @@ public class EventCountersMetricsTests
         Assert.NotNull(metric);
         Assert.Equal(MetricType.DoubleSum, metric.MetricType);
         Assert.Equal(1, GetActualValue(metric));
-    }
-
-    [Fact]
-    public void ThrowExceptionWhenBuilderIsNull()
-    {
-        MeterProviderBuilder builder = null;
-        Assert.Throws<ArgumentNullException>(() => builder.AddEventCountersInstrumentation());
     }
 
     [Fact]
@@ -167,7 +142,7 @@ public class EventCountersMetricsTests
     public void EventSourceNameShortening(string sourceName, string eventName, string expectedInstrumentName)
     {
         // Arrange
-        List<Metric> metricItems = new();
+        List<Metric> metricItems = [];
         using EventSource source = new(sourceName);
         using IncrementingEventCounter connections = new(eventName, source);
 
@@ -177,7 +152,7 @@ public class EventCountersMetricsTests
                 options.AddEventSources(source.Name);
             })
             .AddInMemoryExporter(metricItems)
-            .Build();
+            .Build()!;
 
         // Act
         connections.Increment(1);
@@ -189,14 +164,14 @@ public class EventCountersMetricsTests
     }
 
     [Fact(Skip = "This test should properly validate no metrics are exported from event counters with invalid names (too long)")]
-    public void InstrumentNameTooLong()
+    public async Task InstrumentNameTooLong()
     {
         // Arrange
-        List<Metric> metricItems = new();
+        List<Metric> metricItems = [];
         using EventSource source = new("source");
 
         // ec.s. + event name is 63;
-        string veryLongEventName = new string('e', 100);
+        var veryLongEventName = new string('e', 100);
         using IncrementingEventCounter connections = new(veryLongEventName, source);
 
         using var meterProvider = Sdk.CreateMeterProviderBuilder()
@@ -210,7 +185,7 @@ public class EventCountersMetricsTests
         // Act
         connections.Increment(1);
 
-        Task.Delay(1800).Wait();
+        await Task.Delay(1800);
         meterProvider.ForceFlush();
 
         // Assert
@@ -235,16 +210,16 @@ public class EventCountersMetricsTests
         return sum;
     }
 
-    private static Metric AwaitExport(MeterProvider meterProvider, List<Metric> exportedItems, string expectedInstrumentName)
+    private static Metric? AwaitExport(MeterProvider meterProvider, List<Metric> exportedItems, string expectedInstrumentName)
     {
-        Metric metric = null;
+        Metric? metric = null;
 
         SpinWait.SpinUntil(
             () =>
             {
                 Thread.Sleep(100);
                 meterProvider.ForceFlush();
-                metric = exportedItems.Where(x => x.Name == expectedInstrumentName).FirstOrDefault();
+                metric = exportedItems.FirstOrDefault(x => x.Name == expectedInstrumentName);
                 return metric != null;
             },
             10_000);

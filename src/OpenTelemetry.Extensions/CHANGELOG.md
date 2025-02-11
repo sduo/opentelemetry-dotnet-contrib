@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+* Updated OpenTelemetry core component version(s) to `1.11.1`.
+  ([#2477](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2477))
+
+## 1.10.0-beta.1
+
+Released 2024-Dec-30
+
+* Dropped support for the `net7.0` target because .NET 7 is no longer supported.
+  ([#2038](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/issues/2038))
+
+* Update BaggageActivityProcessor to require baggage key predicate.
+  ([#1816](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1816))
+
+* Added rate limiting sampler which limits the number of traces to the specified
+rate per second. For details see
+  [RateLimitingSampler](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/tree/main/src/OpenTelemetry.Extensions#ratelimitingsampler).
+  ([#1996](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1996))
+
+* Drop support for .NET 6 as this target is no longer supported and add .NET 8 target.
+  ([#2124](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2124))
+
+* Updated OpenTelemetry core component version(s) to `1.10.0`.
+  ([#2317](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2317))
+
+* Adds Baggage LogRecord Processor.
+  ([#2354](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2354))
+
+## 1.0.0-beta.5
+
+Released 2024-May-08
+
+* Add LogToActivityEventConversionOptions.Filter callback
+  ([#1059](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1059))
+
+* Update OpenTelemetry SDK version to `1.8.1`.
+  ([#1668](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1668))
+
+* Add Baggage Activity Processor.
+  ([#1659](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1659))
+
 ## 1.0.0-beta.4
 
 Released 2023-Feb-27

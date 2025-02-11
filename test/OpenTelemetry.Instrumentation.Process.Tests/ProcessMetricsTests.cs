@@ -1,23 +1,6 @@
-// <copyright file="ProcessMetricsTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using OpenTelemetry.Metrics;
 using Xunit;
 
@@ -38,7 +21,7 @@ public class ProcessMetricsTests
 
         meterProviderA.ForceFlush(MaxTimeToAllowForFlush);
 
-        Assert.True(exportedItemsA.Count == 5);
+        Assert.Equal(5, exportedItemsA.Count);
         var physicalMemoryMetric = exportedItemsA.FirstOrDefault(i => i.Name == "process.memory.usage");
         Assert.NotNull(physicalMemoryMetric);
         var virtualMemoryMetric = exportedItemsA.FirstOrDefault(i => i.Name == "process.memory.virtual");
@@ -68,8 +51,8 @@ public class ProcessMetricsTests
 
         meterProviderB.ForceFlush(MaxTimeToAllowForFlush);
 
-        Assert.True(exportedItemsA.Count == 5);
-        Assert.True(exportedItemsB.Count == 5);
+        Assert.Equal(5, exportedItemsA.Count);
+        Assert.Equal(5, exportedItemsB.Count);
     }
 
     [Fact]
@@ -94,11 +77,13 @@ public class ProcessMetricsTests
         {
             foreach (var tag in points.Current.Tags)
             {
-                if (tag.Key == "state" && tag.Value.ToString() == "user")
+                Assert.NotNull(tag.Value);
+
+                if (tag.Key == "process.cpu.state" && tag.Value!.ToString() == "user")
                 {
                     userTimeCaptured = true;
                 }
-                else if (tag.Key == "state" && tag.Value.ToString() == "system")
+                else if (tag.Key == "process.cpu.state" && tag.Value!.ToString() == "system")
                 {
                     systemTimeCaptured = true;
                 }
@@ -110,7 +95,7 @@ public class ProcessMetricsTests
     }
 
     [Fact]
-    public void ProcessMetricsAreCapturedWhenTasksOverlap()
+    public async Task ProcessMetricsAreCapturedWhenTasksOverlap()
     {
         var exportedItemsA = new List<Metric>();
         var exportedItemsB = new List<Metric>();
@@ -142,9 +127,9 @@ public class ProcessMetricsTests
             }),
         };
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
-        Assert.True(exportedItemsA.Count == 5);
+        Assert.Equal(5, exportedItemsA.Count);
         var physicalMemoryMetricA = exportedItemsA.FirstOrDefault(i => i.Name == "process.memory.usage");
         Assert.NotNull(physicalMemoryMetricA);
         var virtualMemoryMetricA = exportedItemsA.FirstOrDefault(i => i.Name == "process.memory.virtual");
@@ -153,10 +138,10 @@ public class ProcessMetricsTests
         Assert.NotNull(cpuTimeMetricA);
         var processorCountMetricA = exportedItemsA.FirstOrDefault(i => i.Name == "process.cpu.count");
         Assert.NotNull(processorCountMetricA);
-        var threadMetricA = exportedItemsA.FirstOrDefault(i => i.Name == "process.threads");
+        var threadMetricA = exportedItemsA.FirstOrDefault(i => i.Name == "process.thread.count");
         Assert.NotNull(threadMetricA);
 
-        Assert.True(exportedItemsB.Count == 5);
+        Assert.Equal(5, exportedItemsB.Count);
         var physicalMemoryMetricB = exportedItemsB.FirstOrDefault(i => i.Name == "process.memory.usage");
         Assert.NotNull(physicalMemoryMetricB);
         var virtualMemoryMetricB = exportedItemsB.FirstOrDefault(i => i.Name == "process.memory.virtual");
@@ -165,7 +150,7 @@ public class ProcessMetricsTests
         Assert.NotNull(cpuTimeMetricB);
         var processorCountMetricB = exportedItemsB.FirstOrDefault(i => i.Name == "process.cpu.count");
         Assert.NotNull(processorCountMetricB);
-        var threadMetricB = exportedItemsB.FirstOrDefault(i => i.Name == "process.threads");
+        var threadMetricB = exportedItemsB.FirstOrDefault(i => i.Name == "process.thread.count");
         Assert.NotNull(threadMetricB);
     }
 

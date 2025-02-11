@@ -1,26 +1,12 @@
-// <copyright file="RpcScope.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 using Google.Protobuf;
 using Grpc.Core;
+using OpenTelemetry.Internal;
 using OpenTelemetry.Trace;
+using StatusCode = Grpc.Core.StatusCode;
 
 namespace OpenTelemetry.Instrumentation.GrpcCore;
 
@@ -39,9 +25,14 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     private readonly bool recordMessageEvents;
 
     /// <summary>
+    /// The record exception as ActivityEvent flag.
+    /// </summary>
+    private readonly bool recordException;
+
+    /// <summary>
     /// The RPC activity.
     /// </summary>
-    private Activity activity;
+    private Activity? activity;
 
     /// <summary>
     /// The complete flag.
@@ -63,10 +54,12 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     /// </summary>
     /// <param name="fullServiceName">Full name of the service.</param>
     /// <param name="recordMessageEvents">if set to <c>true</c> [record message events].</param>
-    protected RpcScope(string fullServiceName, bool recordMessageEvents)
+    /// <param name="recordException">If set to <c>true</c> [record exception].</param>
+    protected RpcScope(string? fullServiceName, bool recordMessageEvents, bool recordException)
     {
         this.FullServiceName = fullServiceName?.TrimStart('/') ?? "unknownservice/unknownmethod";
         this.recordMessageEvents = recordMessageEvents;
+        this.recordException = recordException;
     }
 
     /// <summary>
@@ -80,6 +73,8 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     /// <param name="request">The request.</param>
     public void RecordRequest(TRequest request)
     {
+        Guard.ThrowIfNull(request);
+
         this.requestMessageCounter++;
 
         if (this.activity == null || !this.activity.IsAllDataRequested || !this.recordMessageEvents)
@@ -87,7 +82,7 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
             return;
         }
 
-        this.AddMessageEvent(typeof(TRequest).Name, request as IMessage, request: true);
+        this.AddMessageEvent(typeof(TRequest).Name, (request as IMessage)!, request: true);
     }
 
     /// <summary>
@@ -96,6 +91,8 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     /// <param name="response">The response.</param>
     public void RecordResponse(TResponse response)
     {
+        Guard.ThrowIfNull(response);
+
         this.responseMessageCounter++;
 
         if (this.activity == null || !this.activity.IsAllDataRequested || !this.recordMessageEvents)
@@ -103,7 +100,7 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
             return;
         }
 
-        this.AddMessageEvent(typeof(TResponse).Name, response as IMessage, request: false);
+        this.AddMessageEvent(typeof(TResponse).Name, (response as IMessage)!, request: false);
     }
 
     /// <summary>
@@ -117,7 +114,7 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
         }
 
         // The overall Span status should remain unset however the grpc status code attribute is required
-        this.StopActivity((int)Grpc.Core.StatusCode.OK);
+        this.StopActivity((int)StatusCode.OK);
     }
 
     /// <summary>
@@ -126,21 +123,14 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     /// <param name="exception">The exception.</param>
     public void CompleteWithException(Exception exception)
     {
+        Guard.ThrowIfNull(exception);
+
         if (this.activity == null)
         {
             return;
         }
 
-        var grpcStatusCode = Grpc.Core.StatusCode.Unknown;
-        var description = exception.Message;
-
-        if (exception is RpcException rpcException)
-        {
-            grpcStatusCode = rpcException.StatusCode;
-            description = rpcException.Message;
-        }
-
-        this.StopActivity((int)grpcStatusCode, description);
+        this.StopActivity(exception);
     }
 
     /// <inheritdoc/>
@@ -152,14 +142,14 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
         }
 
         // If not already completed this will mark the Activity as cancelled.
-        this.StopActivity((int)Grpc.Core.StatusCode.Cancelled);
+        this.StopActivity((int)StatusCode.Cancelled);
     }
 
     /// <summary>
     /// Sets the activity for this RPC scope. Should only be called once.
     /// </summary>
     /// <param name="activity">The activity.</param>
-    protected void SetActivity(Activity activity)
+    protected void SetActivity(Activity? activity)
     {
         this.activity = activity;
 
@@ -189,19 +179,58 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     /// Stops the activity.
     /// </summary>
     /// <param name="statusCode">The status code.</param>
-    /// <param name="statusDescription">The description, if any.</param>
-    private void StopActivity(int statusCode, string statusDescription = null)
+    /// <param name="markAsCompleted">If set to <c>true</c> [mark as completed].</param>
+    private void StopActivity(int statusCode, bool markAsCompleted = true)
     {
-        if (Interlocked.CompareExchange(ref this.complete, 1, 0) == 0)
+        if (markAsCompleted && !this.TryMarkAsCompleted())
         {
-            this.activity.SetTag(SemanticConventions.AttributeRpcGrpcStatusCode, statusCode);
-            if (statusDescription != null)
-            {
-                this.activity.SetStatus(Trace.Status.Error.WithDescription(statusDescription));
-            }
-
-            this.activity.Stop();
+            return;
         }
+
+        this.activity!.SetTag(SemanticConventions.AttributeRpcGrpcStatusCode, statusCode);
+        this.activity.Stop();
+    }
+
+    /// <summary>
+    /// Stops the activity.
+    /// </summary>
+    /// <param name="exception">The exception.</param>
+    private void StopActivity(Exception exception)
+    {
+        if (!this.TryMarkAsCompleted())
+        {
+            return;
+        }
+
+        var grpcStatusCode = StatusCode.Unknown;
+        var description = exception.Message;
+
+        if (exception is RpcException rpcException)
+        {
+            grpcStatusCode = rpcException.StatusCode;
+            description = rpcException.Message;
+        }
+
+        if (!string.IsNullOrEmpty(description))
+        {
+            this.activity!.SetStatus(ActivityStatusCode.Error, description);
+        }
+
+        if (this.activity!.IsAllDataRequested && this.recordException)
+        {
+            this.activity.AddException(exception);
+        }
+
+        this.StopActivity((int)grpcStatusCode, markAsCompleted: false);
+    }
+
+    /// <summary>
+    /// Tries to mark <see cref="RpcScope{TRequest, TResponse}"/> as completed.
+    /// </summary>
+    /// <returns>Returns <c>true</c> if marked as completed successfully.</returns>
+    private bool TryMarkAsCompleted()
+    {
+        return Interlocked.CompareExchange(ref this.complete, 1, 0) == 0;
     }
 
     /// <summary>
@@ -214,17 +243,17 @@ internal abstract class RpcScope<TRequest, TResponse> : IDisposable
     {
         var messageSize = message.CalculateSize();
 
-        var attributes = new ActivityTagsCollection(new KeyValuePair<string, object>[5]
-        {
-            new KeyValuePair<string, object>("name", "message"),
-            new KeyValuePair<string, object>(SemanticConventions.AttributeMessageType, request ? "SENT" : "RECEIVED"),
-            new KeyValuePair<string, object>(SemanticConventions.AttributeMessageID, request ? this.requestMessageCounter : this.responseMessageCounter),
+        var attributes = new ActivityTagsCollection(
+        [
+            new("name", "message"),
+            new(SemanticConventions.AttributeMessageType, request ? "SENT" : "RECEIVED"),
+            new(SemanticConventions.AttributeMessageId, request ? this.requestMessageCounter : this.responseMessageCounter),
 
             // TODO how to get the real compressed or uncompressed sizes
-            new KeyValuePair<string, object>(SemanticConventions.AttributeMessageCompressedSize, messageSize),
-            new KeyValuePair<string, object>(SemanticConventions.AttributeMessageUncompressedSize, messageSize),
-        });
+            new(SemanticConventions.AttributeMessageCompressedSize, messageSize),
+            new(SemanticConventions.AttributeMessageUncompressedSize, messageSize),
+        ]);
 
-        this.activity.AddEvent(new ActivityEvent(eventName, default, attributes));
+        this.activity!.AddEvent(new ActivityEvent(eventName, default, attributes));
     }
 }

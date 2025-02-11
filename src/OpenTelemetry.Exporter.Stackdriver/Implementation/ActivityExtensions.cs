@@ -1,25 +1,8 @@
-// <copyright file="ActivityExtensions.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-#nullable enable
-
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
 using Google.Cloud.Trace.V2;
 using Google.Protobuf.WellKnownTypes;
 using OpenTelemetry.Trace;
@@ -28,7 +11,7 @@ namespace OpenTelemetry.Exporter.Stackdriver.Implementation;
 
 internal static class ActivityExtensions
 {
-    private static readonly Dictionary<string, string> LabelsToReplace = new Dictionary<string, string>
+    private static readonly Dictionary<string, string> LabelsToReplace = new()
     {
         { "component", "/component" },
         { "http.method", "/http/method" },
@@ -61,7 +44,7 @@ internal static class ActivityExtensions
             EndTime = activity.StartTimeUtc.Add(activity.Duration).ToTimestamp(),
             ChildSpanCount = null,
         };
-        if (activity.ParentSpanId != null)
+        if (activity.ParentSpanId != default)
         {
             var parentSpanId = activity.ParentSpanId.ToHexString();
             if (!string.IsNullOrEmpty(parentSpanId))
@@ -82,15 +65,12 @@ internal static class ActivityExtensions
         // Span Attributes
         if (activity.Tags != null)
         {
-            span.Attributes = new Span.Types.Attributes
+            span.Attributes = new Span.Types.Attributes();
+            var attrMap = span.Attributes.AttributeMap;
+            foreach (var att in activity.Tags)
             {
-                AttributeMap =
-                {
-                    activity.Tags.ToDictionary(
-                        s => s.Key,
-                        s => s.Value.ToAttributeValue()),
-                },
-            };
+                attrMap[att.Key] = att.Value.ToAttributeValue();
+            }
         }
 
         // StackDriver uses different labels that are used to categorize spans
@@ -117,15 +97,12 @@ internal static class ActivityExtensions
 
         if (link.Tags != null)
         {
-            ret.Attributes = new Span.Types.Attributes
+            ret.Attributes = new Span.Types.Attributes();
+            var attrMap = ret.Attributes.AttributeMap;
+            foreach (var att in link.Tags)
             {
-                AttributeMap =
-                {
-                    link.Tags.ToDictionary(
-                        att => att.Key,
-                        att => att.Value?.ToAttributeValue()),
-                },
-            };
+                attrMap[att.Key] = att.Value.ToAttributeValue();
+            }
         }
 
         return ret;
@@ -133,29 +110,17 @@ internal static class ActivityExtensions
 
     public static AttributeValue ToAttributeValue(this object? av)
     {
-        switch (av)
+        return av switch
         {
-            case string s:
-                return new AttributeValue()
-                {
-                    StringValue = new TruncatableString() { Value = s },
-                };
-            case bool b:
-                return new AttributeValue() { BoolValue = b };
-            case long l:
-                return new AttributeValue() { IntValue = l };
-            case double d:
-                return new AttributeValue()
-                {
-                    StringValue = new TruncatableString() { Value = d.ToString(CultureInfo.InvariantCulture) },
-                };
-            case null:
-                return new AttributeValue();
-            default:
-                return new AttributeValue()
-                {
-                    StringValue = new TruncatableString() { Value = av.ToString() },
-                };
-        }
+            string s => new AttributeValue { StringValue = new TruncatableString { Value = s } },
+            bool b => new AttributeValue { BoolValue = b },
+            long l => new AttributeValue { IntValue = l },
+            double d => new AttributeValue
+            {
+                StringValue = new TruncatableString { Value = d.ToString(CultureInfo.InvariantCulture) },
+            },
+            null => new AttributeValue(),
+            _ => new AttributeValue { StringValue = new TruncatableString { Value = av.ToString() } },
+        };
     }
 }

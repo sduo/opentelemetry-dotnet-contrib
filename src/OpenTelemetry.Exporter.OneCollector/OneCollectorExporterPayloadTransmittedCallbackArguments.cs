@@ -1,18 +1,5 @@
-// <copyright file="OneCollectorExporterPayloadTransmittedCallbackArguments.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Diagnostics;
 using OpenTelemetry.Internal;
@@ -39,7 +26,8 @@ public readonly ref struct OneCollectorExporterPayloadTransmittedCallbackArgumen
         OneCollectorExporterSerializationFormatType payloadSerializationFormat,
         Stream payloadStream,
         OneCollectorExporterTransportProtocolType transportProtocol,
-        Uri transportEndpoint)
+        Uri transportEndpoint,
+        bool succeeded)
     {
         Debug.Assert(payloadStream != null, "payload stream was null");
         Debug.Assert(payloadStream!.CanSeek, "payload stream was not seekable");
@@ -49,6 +37,7 @@ public readonly ref struct OneCollectorExporterPayloadTransmittedCallbackArgumen
         this.payloadStream = payloadStream;
         this.TransportProtocol = transportProtocol;
         this.TransportEndpoint = transportEndpoint!;
+        this.Succeeded = succeeded;
     }
 
     /// <summary>
@@ -60,6 +49,28 @@ public readonly ref struct OneCollectorExporterPayloadTransmittedCallbackArgumen
     /// Gets the transport endpoint.
     /// </summary>
     public Uri TransportEndpoint { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether or not the payload transmission was successful.
+    /// </summary>
+    /// <remarks>
+    /// Notes:
+    /// <list type="bullet">
+    /// <item>
+    /// A <see langword="true"/> value indicates a request was fully transmitted
+    /// and acknowledged.
+    /// </item>
+    /// <item>
+    /// A <see langword="false"/> value indicates a request did NOT fully
+    /// transmit or an acknowledgement was NOT received. Data may have been
+    /// partially or fully transmitted in this case.
+    /// </item>
+    /// <item>
+    /// <inheritdoc cref="OneCollectorExporter{T}.RegisterPayloadTransmittedCallback(OneCollectorExporterPayloadTransmittedCallbackAction)" path="/remarks"/>
+    /// </item>
+    /// </list>
+    /// </remarks>
+    public bool Succeeded { get; }
 
     /// <summary>
     /// Gets the payload serialization format.

@@ -1,0 +1,55 @@
+name: Integration Build OpenTelemetry.Exporter.OneCollector
+
+permissions:
+  contents: read
+
+on:
+  pull_request_target: # Allows secret access from forks see: https://github.blog/2020-08-03-github-actions-improvements-for-fork-and-pull-request-workflows/#improvements-for-public-repository-forks
+    branches: [ 'main*', 'exporter*' ]
+    paths:
+    - '*/OpenTelemetry.Exporter.OneCollector*/**'
+    - 'src/Shared/**'
+    - 'build/**'
+    - '!**.md'
+
+jobs:
+  authorize:
+    environment: # Run external PRs from forks on the "external"" environment which requires approval
+      ${{ github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      'external' || 'internal' }}
+    runs-on: ubuntu-22.04
+    steps:
+    - run: echo ✓
+
+  build-integration-test:
+    needs: authorize
+
+    strategy:
+      fail-fast: false # ensures the entire test matrix is run, even if one permutation fails
+      matrix:
+        os: [ windows-latest, ubuntu-22.04 ]
+        version: [ net462, net8.0 ]
+        exclude:
+        - os: ubuntu-22.04
+          version: net462
+
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.ref }} # Run on the fork branch once approved
+
+    - name: Setup dotnet
+      uses: actions/setup-dotnet@v4
+
+    - name: dotnet restore Component.proj for OpenTelemetry.Exporter.OneCollector
+      run: dotnet restore build/Projects/Component.proj -p:BUILD_COMPONENT=OpenTelemetry.Exporter.OneCollector
+
+    - name: dotnet build Component.proj for OpenTelemetry.Exporter.OneCollector
+      run: dotnet build build/Projects/Component.proj --configuration Release --no-restore -p:BUILD_COMPONENT=OpenTelemetry.Exporter.OneCollector
+
+    - name: dotnet test Component.proj for OpenTelemetry.Exporter.OneCollector
+      run: dotnet test build/Projects/Component.proj --filter CategoryName=OneCollectorIntegrationTests --framework ${{ matrix.version }} --configuration Release --no-restore --no-build -p:BUILD_COMPONENT=OpenTelemetry.Exporter.OneCollector --logger:"console;verbosity=detailed"
+      env:
+        OTEL_ONECOLLECTOR_INSTRUMENTATION_KEY: ${{ secrets.OTEL_ONECOLLECTOR_INSTRUMENTATION_KEY }}

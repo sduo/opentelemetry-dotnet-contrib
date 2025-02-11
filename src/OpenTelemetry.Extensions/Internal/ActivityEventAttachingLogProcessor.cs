@@ -1,23 +1,8 @@
-// <copyright file="ActivityEventAttachingLogProcessor.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics;
 using OpenTelemetry.Internal;
-using OpenTelemetry.Trace;
 
 namespace OpenTelemetry.Logs;
 
@@ -46,10 +31,25 @@ internal sealed class ActivityEventAttachingLogProcessor : BaseProcessor<LogReco
 
     public override void OnEnd(LogRecord data)
     {
-        Activity? activity = Activity.Current;
+        var activity = Activity.Current;
 
         if (activity?.IsAllDataRequested == true)
         {
+            try
+            {
+                if (this.options.Filter?.Invoke(data) == false)
+                {
+                    return;
+                }
+            }
+#pragma warning disable CA1031 // Do not catch general exception types
+            catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+            {
+                OpenTelemetryExtensionsEventSource.Log.LogRecordFilterException(data.CategoryName, ex);
+                return;
+            }
+
             var tags = new ActivityTagsCollection
             {
                 { nameof(data.CategoryName), data.CategoryName },
@@ -63,17 +63,17 @@ internal sealed class ActivityEventAttachingLogProcessor : BaseProcessor<LogReco
 
             data.ForEachScope(ProcessScope, new State(tags, this));
 
-            if (data.StateValues != null)
+            if (data.Attributes != null)
             {
                 try
                 {
-                    this.options.StateConverter?.Invoke(tags, data.StateValues);
+                    this.options.StateConverter?.Invoke(tags, data.Attributes);
                 }
 #pragma warning disable CA1031 // Do not catch general exception types
                 catch (Exception ex)
 #pragma warning restore CA1031 // Do not catch general exception types
                 {
-                    OpenTelemetryExtensionsEventSource.Log.LogProcessorException($"Processing state of type [{data.State?.GetType().FullName}]", ex);
+                    OpenTelemetryExtensionsEventSource.Log.LogProcessorException($"Processing attributes for LogRecord with CategoryName [{data.CategoryName}]", ex);
                 }
             }
 
@@ -87,7 +87,7 @@ internal sealed class ActivityEventAttachingLogProcessor : BaseProcessor<LogReco
 
             if (data.Exception != null)
             {
-                activity.RecordException(data.Exception);
+                activity.AddException(data.Exception);
             }
         }
     }

@@ -1,20 +1,10 @@
-// <copyright file="OneCollectorLogExportProcessorBuilder.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
+using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OpenTelemetry.Exporter.OneCollector;
 using OpenTelemetry.Internal;
 
@@ -27,19 +17,34 @@ namespace OpenTelemetry.Logs;
 /// </summary>
 public sealed class OneCollectorLogExportProcessorBuilder
 {
-    private static readonly Func<HttpClient> DefaultHttpClientFactory = () => new HttpClient();
-    private readonly OneCollectorLogExporterOptions exporterOptions = new();
-    private readonly BatchExportProcessorOptions<LogRecord> batchOptions = new();
-    private readonly List<Action<OneCollectorExporter<LogRecord>>> configureExporterActions = new();
-    private Func<HttpClient>? httpClientFactory;
+    private readonly string? name;
+    private readonly IServiceCollection services;
+    private readonly bool ownsServices;
 
     internal OneCollectorLogExportProcessorBuilder(
+        string? name,
+        IServiceCollection? services,
         IConfiguration? configuration)
     {
+        this.name = name;
+
+        if (services == null)
+        {
+            this.services = new ServiceCollection();
+            this.services.AddOptions();
+            this.ownsServices = true;
+        }
+        else
+        {
+            this.services = services;
+        }
+
         if (configuration != null)
         {
-            configuration.Bind(this.exporterOptions);
-            configuration.GetSection("BatchOptions").Bind(this.batchOptions);
+            this.services.Configure<OneCollectorLogExporterOptions>(this.name, configuration);
+            this.services.Configure<BatchExportLogRecordProcessorOptions>(
+                this.name,
+                batchOptions => configuration.GetSection("BatchOptions").Bind(batchOptions));
         }
     }
 
@@ -57,7 +62,9 @@ public sealed class OneCollectorLogExportProcessorBuilder
     {
         Guard.ThrowIfNull(configure);
 
-        configure(this.batchOptions);
+        this.services.Configure<BatchExportLogRecordProcessorOptions>(
+            this.name,
+            batchOptions => configure(batchOptions));
 
         return this;
     }
@@ -76,7 +83,32 @@ public sealed class OneCollectorLogExportProcessorBuilder
     {
         Guard.ThrowIfNull(configure);
 
-        this.configureExporterActions.Add(configure);
+        this.services.AddSingleton(
+            new ConfigureOneCollectorExporter(
+                this.name,
+                (sp, e) => configure(e)));
+
+        return this;
+    }
+
+    /// <summary>
+    /// Register a callback action for configuring the serialization options
+    /// used by the <see cref="OneCollectorExporter{T}"/> created by the
+    /// builder.
+    /// </summary>
+    /// <param name="configure">Callback action for configuring <see
+    /// cref="OneCollectorLogExporterSerializationOptions"/>.</param>
+    /// <returns>The supplied <see
+    /// cref="OneCollectorLogExportProcessorBuilder"/> for call
+    /// chaining.</returns>
+    public OneCollectorLogExportProcessorBuilder ConfigureSerializationOptions(
+        Action<OneCollectorLogExporterSerializationOptions> configure)
+    {
+        Guard.ThrowIfNull(configure);
+
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => configure(exporterOptions.SerializationOptions));
 
         return this;
     }
@@ -95,7 +127,9 @@ public sealed class OneCollectorLogExportProcessorBuilder
     {
         Guard.ThrowIfNull(configure);
 
-        configure(this.exporterOptions.TransportOptions);
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => configure(exporterOptions.TransportOptions));
 
         return this;
     }
@@ -116,7 +150,54 @@ public sealed class OneCollectorLogExportProcessorBuilder
     {
         Guard.ThrowIfNullOrWhitespace(connectionString);
 
-        this.exporterOptions.ConnectionString = connectionString;
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => exporterOptions.ConnectionString = connectionString);
+
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the event full name mappings used by the <see
+    /// cref="OneCollectorExporter{T}"/> created by the builder.
+    /// </summary>
+    /// <remarks><inheritdoc
+    /// cref="OneCollectorLogExporterOptions.EventFullNameMappings"
+    /// path="/remarks"/></remarks>
+    /// <param name="eventFullNameMappings">Event full name mappings.</param>
+    /// <returns>The supplied <see
+    /// cref="OneCollectorLogExportProcessorBuilder"/> for call
+    /// chaining.</returns>
+    public OneCollectorLogExportProcessorBuilder SetEventFullNameMappings(
+        IReadOnlyDictionary<string, string>? eventFullNameMappings)
+    {
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => exporterOptions.EventFullNameMappings = eventFullNameMappings);
+
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the default event namespace used by the <see
+    /// cref="OneCollectorExporter{T}"/> created by the builder. Default value:
+    /// <c>OpenTelemetry.Logs</c>.
+    /// </summary>
+    /// <remarks><inheritdoc
+    /// cref="OneCollectorLogExporterOptions.DefaultEventNamespace"
+    /// path="/remarks"/></remarks>
+    /// <param name="defaultEventNamespace">Default event namespace.</param>
+    /// <returns>The supplied <see
+    /// cref="OneCollectorLogExportProcessorBuilder"/> for call
+    /// chaining.</returns>
+    public OneCollectorLogExportProcessorBuilder SetDefaultEventNamespace(
+        string defaultEventNamespace)
+    {
+        Guard.ThrowIfNullOrWhitespace(defaultEventNamespace);
+
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => exporterOptions.DefaultEventNamespace = defaultEventNamespace);
 
         return this;
     }
@@ -138,59 +219,62 @@ public sealed class OneCollectorLogExportProcessorBuilder
     {
         Guard.ThrowIfNullOrWhitespace(defaultEventName);
 
-        this.exporterOptions.DefaultEventName = defaultEventName;
+        this.services.Configure<OneCollectorLogExporterOptions>(
+            this.name,
+            exporterOptions => exporterOptions.DefaultEventName = defaultEventName);
 
         return this;
     }
 
-    /// <summary>
-    /// Sets the factory function called to create the <see cref="HttpClient"/>
-    /// instance that will be used at runtime to transmit telemetry over HTTP
-    /// transports. The returned instance will be reused for all export
-    /// invocations.
-    /// </summary>
-    /// <remarks>
-    /// Note: The default behavior is an <see cref="HttpClient"/> will be
-    /// instantiated directly.
-    /// </remarks>
-    /// <param name="httpClientFactory">Factory function which returns the <see
-    /// cref="HttpClient"/> instance to use.</param>
-    /// <returns>The supplied <see
-    /// cref="OneCollectorLogExportProcessorBuilder"/> for call
-    /// chaining.</returns>
-    internal OneCollectorLogExportProcessorBuilder SetHttpClientFactory(
-        Func<HttpClient> httpClientFactory)
+    internal BaseProcessor<LogRecord> BuildProcessor(
+        IServiceProvider serviceProvider)
     {
-        Guard.ThrowIfNull(httpClientFactory);
+        Debug.Assert(serviceProvider != null, "serviceProvider was null");
 
-        this.httpClientFactory = httpClientFactory;
+        ServiceProvider? ownedServiceProvider = null;
+        if (this.ownsServices)
+        {
+            ownedServiceProvider = this.services.BuildServiceProvider();
+        }
 
-        return this;
-    }
-
-    internal BaseProcessor<LogRecord> BuildProcessor()
-    {
-#pragma warning disable CA2000 // Dispose objects before losing scope
-        return new BatchLogRecordExportProcessor(
-            this.BuildExporter(),
-            this.batchOptions.MaxQueueSize,
-            this.batchOptions.ScheduledDelayMilliseconds,
-            this.batchOptions.ExporterTimeoutMilliseconds,
-            this.batchOptions.MaxExportBatchSize);
-#pragma warning restore CA2000 // Dispose objects before losing scope
-    }
-
-    private OneCollectorExporter<LogRecord> BuildExporter()
-    {
-        var exporter = new OneCollectorExporter<LogRecord>(this.CreateSink());
+        var exporterOptions = (ownedServiceProvider ?? serviceProvider!).GetRequiredService<IOptionsMonitor<OneCollectorLogExporterOptions>>().Get(this.name);
+        var batchOptions = (ownedServiceProvider ?? serviceProvider!).GetRequiredService<IOptionsMonitor<BatchExportLogRecordProcessorOptions>>().Get(this.name);
 
         try
         {
-            int index = 0;
-            while (index < this.configureExporterActions.Count)
+#pragma warning disable CA2000 // Dispose objects before losing scope
+            return new BatchLogRecordExportProcessor(
+                CreateExporter(this.name, serviceProvider!, exporterOptions, (ownedServiceProvider ?? serviceProvider!).GetServices<ConfigureOneCollectorExporter>()),
+                batchOptions.MaxQueueSize,
+                batchOptions.ScheduledDelayMilliseconds,
+                batchOptions.ExporterTimeoutMilliseconds,
+                batchOptions.MaxExportBatchSize);
+#pragma warning restore CA2000 // Dispose objects before losing scope
+        }
+        finally
+        {
+            ownedServiceProvider?.Dispose();
+        }
+    }
+
+    private static OneCollectorExporter<LogRecord> CreateExporter(
+        string? name,
+        IServiceProvider serviceProvider,
+        OneCollectorLogExporterOptions exporterOptions,
+        IEnumerable<ConfigureOneCollectorExporter> configurations)
+    {
+#pragma warning disable CA2000 // Dispose objects before losing scope
+        var exporter = new OneCollectorExporter<LogRecord>(CreateSink(exporterOptions));
+#pragma warning restore CA2000 // Dispose objects before losing scope
+
+        try
+        {
+            foreach (var configuration in configurations)
             {
-                var action = this.configureExporterActions[index++];
-                action(exporter);
+                if (name == configuration.Name)
+                {
+                    configuration.Configure(serviceProvider, exporter);
+                }
             }
         }
         catch
@@ -202,24 +286,43 @@ public sealed class OneCollectorLogExportProcessorBuilder
         return exporter;
     }
 
-    private ISink<LogRecord> CreateSink()
+    private static WriteDirectlyToTransportSink<LogRecord> CreateSink(OneCollectorLogExporterOptions exporterOptions)
     {
-        this.exporterOptions.Validate();
+        exporterOptions.Validate();
 
-        var transportOptions = this.exporterOptions.TransportOptions;
+        var transportOptions = exporterOptions.TransportOptions;
 
 #pragma warning disable CA2000 // Dispose objects before losing scope
         return new WriteDirectlyToTransportSink<LogRecord>(
             new LogRecordCommonSchemaJsonSerializer(
-                new EventNameManager(this.exporterOptions.DefaultEventNamespace, this.exporterOptions.DefaultEventName),
-                this.exporterOptions.TenantToken!,
+                new EventNameManager(
+                    exporterOptions.DefaultEventNamespace,
+                    exporterOptions.DefaultEventName,
+                    exporterOptions.ParsedEventFullNameMappings),
+                exporterOptions.TenantToken!,
+                exporterOptions.SerializationOptions.ExceptionStackTraceHandling,
                 transportOptions.MaxPayloadSizeInBytes == -1 ? int.MaxValue : transportOptions.MaxPayloadSizeInBytes,
                 transportOptions.MaxNumberOfItemsPerPayload == -1 ? int.MaxValue : transportOptions.MaxNumberOfItemsPerPayload),
             new HttpJsonPostTransport(
-                this.exporterOptions.InstrumentationKey!,
+                exporterOptions.InstrumentationKey!,
                 transportOptions.Endpoint,
                 transportOptions.HttpCompression,
-                (this.httpClientFactory ?? DefaultHttpClientFactory)() ?? throw new NotSupportedException("HttpClientFactory cannot return a null instance.")));
+                new HttpClientWrapper(transportOptions.GetHttpClient())));
 #pragma warning restore CA2000 // Dispose objects before losing scope
+    }
+
+    private sealed class ConfigureOneCollectorExporter
+    {
+        public ConfigureOneCollectorExporter(
+            string? name,
+            Action<IServiceProvider, OneCollectorExporter<LogRecord>> configure)
+        {
+            this.Name = name;
+            this.Configure = configure;
+        }
+
+        public string? Name { get; }
+
+        public Action<IServiceProvider, OneCollectorExporter<LogRecord>> Configure { get; }
     }
 }

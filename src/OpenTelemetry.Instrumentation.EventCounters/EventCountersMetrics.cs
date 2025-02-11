@@ -1,25 +1,11 @@
-// <copyright file="EventCountersMetrics.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Diagnostics.Tracing;
 using System.Globalization;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Instrumentation.EventCounters;
 
@@ -28,17 +14,26 @@ namespace OpenTelemetry.Instrumentation.EventCounters;
 /// </summary>
 internal sealed class EventCountersMetrics : EventListener
 {
-    internal static readonly Meter MeterInstance = new(typeof(EventCountersMetrics).Assembly.GetName().Name, typeof(EventCountersMetrics).Assembly.GetName().Version.ToString());
-
     private const string Prefix = "ec";
     private const int MaxInstrumentNameLength = 63;
 
     private readonly EventCountersInstrumentationOptions options;
-    private readonly List<EventSource> preInitEventSources = new();
-    private readonly List<EventSource> enabledEventSources = new();
+    private readonly List<EventSource> preInitEventSources = [];
+    private readonly List<EventSource> enabledEventSources = [];
     private readonly ConcurrentDictionary<(string, string), Instrument> instruments = new();
     private readonly ConcurrentDictionary<(string, string), double> values = new();
     private bool isDisposed;
+
+    static EventCountersMetrics()
+    {
+        // Ensure EventCountersInstrumentationEventSource got initialized when the class was accessed for the first time
+        // to prevent potential deadlock:
+        // https://github.com/open-telemetry/opentelemetry-dotnet-contrib/issues/1024.
+        _ = EventCountersInstrumentationEventSource.Log;
+
+        var assembly = typeof(EventCountersMetrics).Assembly;
+        MeterInstance = new Meter(assembly.GetName().Name, assembly.GetPackageVersion());
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EventCountersMetrics"/> class.
@@ -50,7 +45,7 @@ internal sealed class EventCountersMetrics : EventListener
         {
             this.options = options;
 
-            foreach (EventSource eventSource in this.preInitEventSources)
+            foreach (var eventSource in this.preInitEventSources)
             {
                 if (this.options.ShouldListenToSource(eventSource.Name))
                 {
@@ -62,6 +57,8 @@ internal sealed class EventCountersMetrics : EventListener
             this.preInitEventSources.Clear();
         }
     }
+
+    internal static Meter MeterInstance { get; }
 
     /// <inheritdoc />
     public override void Dispose()
@@ -170,7 +167,7 @@ internal sealed class EventCountersMetrics : EventListener
     /// </summary>
     private static string GetInstrumentName(string sourceName, string eventName)
     {
-        int totalLength = Prefix.Length + 1 + sourceName.Length + 1 + eventName.Length;
+        var totalLength = Prefix.Length + 1 + sourceName.Length + 1 + eventName.Length;
         if (totalLength <= MaxInstrumentNameLength)
         {
             return string.Concat(Prefix, ".", sourceName, ".", eventName);

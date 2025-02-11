@@ -1,7 +1,7 @@
 # MassTransit Instrumentation for OpenTelemetry .NET
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.MassTransit.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MassTransit)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.MassTransit.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MassTransit)
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.MassTransit)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MassTransit)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.MassTransit)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.MassTransit)
 
 Automatically instruments
 [DiagnosticSource](https://masstransit-project.com/advanced/monitoring/diagnostic-source.html)
@@ -9,7 +9,8 @@ events emitted by [MassTransit](https://masstransit-project.com/) library.
 
 ## Deprecated
 
-> **NOTE that this only works with MassTransit v7 (and earlier, where supported)**.
+> [!IMPORTANT]
+> **This only works with MassTransit v7 (and earlier, where supported)**.
 > MassTransit v8.0.0 and later have built-in direct support for Open Telemetry
 > via `ActivitySource`.
 
@@ -74,7 +75,7 @@ x.AddMassTransitInstrumentation(
 }));
 ```
 
-For full operation list please see: [OperationName](OperationName.cs).
+For full operation list please see: [OperationName](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/blob/Instrumentation.MassTransit-1.0.0-beta.3/src/OpenTelemetry.Instrumentation.MassTransit/OperationName.cs).
 
 All operations are enabled by default.
 

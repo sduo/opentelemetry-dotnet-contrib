@@ -1,45 +1,31 @@
-// <copyright file="SampleLambdaContext.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using Amazon.Lambda.Core;
 
 namespace OpenTelemetry.Instrumentation.AWSLambda.Tests;
 
-public class SampleLambdaContext : ILambdaContext
+internal class SampleLambdaContext : ILambdaContext
 {
-    public string AwsRequestId { get; } = "testrequestid";
+    public string AwsRequestId { get; set; } = "testrequestid";
 
-    public IClientContext ClientContext { get; }
+    public IClientContext? ClientContext { get; set; }
 
-    public string FunctionName { get; } = "testfunction";
+    public string FunctionName { get; set; } = "testfunction";
 
-    public string FunctionVersion { get; } = "latest";
+    public string FunctionVersion { get; set; } = "latest";
 
-    public ICognitoIdentity Identity { get; }
+    public ICognitoIdentity? Identity { get; set; }
 
-    public string InvokedFunctionArn { get; } = "arn:aws:lambda:us-east-1:111111111111:function:testfunction";
+    public string InvokedFunctionArn { get; set; } = "arn:aws:lambda:us-east-1:111111111111:function:testfunction";
 
-    public ILambdaLogger Logger { get; }
+    public ILambdaLogger? Logger { get; set; }
 
-    public string LogGroupName { get; }
+    public string? LogGroupName { get; set; }
 
-    public string LogStreamName { get; }
+    public string? LogStreamName { get; set; }
 
-    public int MemoryLimitInMB { get; }
+    public int MemoryLimitInMB { get; set; }
 
-    public TimeSpan RemainingTime { get; }
+    public TimeSpan RemainingTime { get; set; }
 }

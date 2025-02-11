@@ -1,43 +1,25 @@
-// <copyright file="HangfireInstrumentationJobFilterAttribute.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using Hangfire;
-
-namespace OpenTelemetry.Instrumentation.Hangfire.Implementation;
-
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using global::Hangfire.Client;
-using global::Hangfire.Common;
-using global::Hangfire.Server;
+using Hangfire.Client;
+using Hangfire.Common;
+using Hangfire.Server;
 using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Trace;
+
+namespace OpenTelemetry.Instrumentation.Hangfire.Implementation;
 
 internal sealed class HangfireInstrumentationJobFilterAttribute : JobFilterAttribute, IServerFilter, IClientFilter
 {
     private readonly HangfireInstrumentationOptions options;
 
+#pragma warning disable CA1019 // Define accessors for attribute arguments
     public HangfireInstrumentationJobFilterAttribute(HangfireInstrumentationOptions options)
+#pragma warning restore CA1019 // Define accessors for attribute arguments
     {
         this.options = options;
     }
-
-    public HangfireInstrumentationOptions Options { get; }
 
     public void OnPerforming(PerformingContext performingContext)
     {
@@ -61,13 +43,28 @@ internal sealed class HangfireInstrumentationJobFilterAttribute : JobFilterAttri
 
         if (activity != null)
         {
-            Func<BackgroundJob, string> displayNameFunc =
-                this.options.DisplayNameFunc ?? HangfireInstrumentation.DefaultDisplayNameFunc;
+            var displayNameFunc = this.options.DisplayNameFunc;
 
             activity.DisplayName = displayNameFunc(performingContext.BackgroundJob);
 
             if (activity.IsAllDataRequested)
             {
+                try
+                {
+                    if (this.options.Filter?.Invoke(performingContext.BackgroundJob) == false)
+                    {
+                        activity.IsAllDataRequested = false;
+                        activity.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+                        return;
+                    }
+                }
+                catch (Exception)
+                {
+                    activity.IsAllDataRequested = false;
+                    activity.ActivityTraceFlags &= ~ActivityTraceFlags.Recorded;
+                    return;
+                }
+
                 activity.SetTag(HangfireInstrumentationConstants.JobIdTag, performingContext.BackgroundJob.Id);
                 activity.SetTag(HangfireInstrumentationConstants.JobCreatedAtTag, performingContext.BackgroundJob.CreatedAt.ToString("O"));
             }
@@ -79,12 +76,12 @@ internal sealed class HangfireInstrumentationJobFilterAttribute : JobFilterAttri
     public void OnPerformed(PerformedContext performedContext)
     {
         // Short-circuit if nobody is listening
-        if (!HangfireInstrumentation.ActivitySource.HasListeners() || !performedContext.Items.ContainsKey(HangfireInstrumentationConstants.ActivityKey))
+        if (!HangfireInstrumentation.ActivitySource.HasListeners() || !performedContext.Items.TryGetValue(HangfireInstrumentationConstants.ActivityKey, out var value))
         {
             return;
         }
 
-        if (performedContext.Items[HangfireInstrumentationConstants.ActivityKey] is Activity activity)
+        if (value is Activity activity)
         {
             if (performedContext.Exception != null)
             {
@@ -125,7 +122,7 @@ internal sealed class HangfireInstrumentationJobFilterAttribute : JobFilterAttri
 
     private static IEnumerable<string> ExtractActivityProperties(Dictionary<string, string> telemetryData, string key)
     {
-        return telemetryData.TryGetValue(key, out var value) ? new[] { value } : Enumerable.Empty<string>();
+        return telemetryData.TryGetValue(key, out var value) ? [value] : [];
     }
 
     private void SetStatusAndRecordException(Activity activity, Exception exception)
@@ -134,7 +131,7 @@ internal sealed class HangfireInstrumentationJobFilterAttribute : JobFilterAttri
 
         if (this.options.RecordException)
         {
-            activity.RecordException(exception);
+            activity.AddException(exception);
         }
     }
 }

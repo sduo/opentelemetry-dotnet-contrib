@@ -1,12 +1,21 @@
 <Project>
   <PropertyGroup>
-    <LangVersion>11.0</LangVersion>
+    <LangVersion>latest</LangVersion>
     <SignAssembly>true</SignAssembly>
     <RepoRoot>$([System.IO.Directory]::GetParent($(MSBuildThisFileDirectory)).Parent.FullName)</RepoRoot>
     <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)debug.snk</AssemblyOriginatorKeyFile>
     <DefineConstants>$(DefineConstants);SIGNED</DefineConstants>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <NetFrameworkMinimumSupportedVersion>net462</NetFrameworkMinimumSupportedVersion>
+    <NetMinimumSupportedVersion>net8.0</NetMinimumSupportedVersion>
+    <NetStandardMinimumSupportedVersion>netstandard2.0</NetStandardMinimumSupportedVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
@@ -16,6 +25,7 @@
 
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup Label="Package versions used in this repository">
@@ -23,21 +33,29 @@
       Please sort alphabetically.
       Refer to https://docs.microsoft.com/en-us/nuget/concepts/package-versioning for semver syntax.
     -->
-    <MinVerPkgVer>[4.2.0,5.0)</MinVerPkgVer>
-    <MicrosoftCodeCoveragePkgVer>[17.3.2]</MicrosoftCodeCoveragePkgVer>
+    <MinVerPkgVer>[6.0.0,7.0)</MinVerPkgVer>
     <MicrosoftExtensionsHostingAbstractionsPkgVer>[2.1.0,5.0)</MicrosoftExtensionsHostingAbstractionsPkgVer>
-    <MicrosoftExtensionsOptionsPkgVer>[3.1.0,)</MicrosoftExtensionsOptionsPkgVer>
+    <MicrosoftExtensionsConfigurationPkgVer>[9.0.0,)</MicrosoftExtensionsConfigurationPkgVer>
+    <MicrosoftExtensionsOptionsPkgVer>[9.0.0,)</MicrosoftExtensionsOptionsPkgVer>
     <MicrosoftNETFrameworkReferenceAssembliesPkgVer>[1.0.3,2.0)</MicrosoftNETFrameworkReferenceAssembliesPkgVer>
     <MicrosoftOwinPkgVer>[4.2.2,5.0)</MicrosoftOwinPkgVer>
-    <MicrosoftPublicApiAnalyzersPkgVer>[3.3.3]</MicrosoftPublicApiAnalyzersPkgVer>
-    <MicrosoftSourceLinkGitHubPkgVer>[1.1.1,2.0)</MicrosoftSourceLinkGitHubPkgVer>
-    <OpenTelemetryCoreLatestVersion>[1.4.0,2.0)</OpenTelemetryCoreLatestVersion>
-    <OpenTelemetryCoreLatestPrereleaseVersion>[1.4.0,2.0)</OpenTelemetryCoreLatestPrereleaseVersion>
-    <StackExchangeRedisPkgVer>[2.1.58,3.0)</StackExchangeRedisPkgVer>
-    <StyleCopAnalyzersPkgVer>[1.2.0-beta.435,2.0)</StyleCopAnalyzersPkgVer>
+    <MicrosoftPublicApiAnalyzersPkgVer>[3.11.0-beta1.23525.2]</MicrosoftPublicApiAnalyzersPkgVer>
+    <MicrosoftSourceLinkGitHubPkgVer>[8.0.0,9.0)</MicrosoftSourceLinkGitHubPkgVer>
+    <OpenTelemetryCoreUnstableLatestVersion>[1.11.0-beta.1]</OpenTelemetryCoreUnstableLatestVersion>
+    <OpenTelemetryCoreLatestVersion>[1.11.1,2.0)</OpenTelemetryCoreLatestVersion>
+    <OpenTelemetryCoreLatestPrereleaseVersion>[1.11.0-rc.1]</OpenTelemetryCoreLatestPrereleaseVersion>
+    <StackExchangeRedisPkgVer>[2.6.122,3.0)</StackExchangeRedisPkgVer>
+    <ConfluentKafkaPkgVer>[2.4.0,3.0)</ConfluentKafkaPkgVer>
+    <CassandraCSharpDriverPkgVer>[3.16.0,4.0)</CassandraCSharpDriverPkgVer>
+    <StyleCopAnalyzersPkgVer>[1.2.0-beta.556,2.0)</StyleCopAnalyzersPkgVer>
     <SystemNetHttp>[4.3.4,)</SystemNetHttp>
-    <SystemReflectionEmitLightweightPkgVer>4.7.0</SystemReflectionEmitLightweightPkgVer>
-    <SystemTextJsonPkgVer>[6.0.0,)</SystemTextJsonPkgVer>
+    <SystemReflectionEmitLightweightPkgVer>[4.7.0,)</SystemReflectionEmitLightweightPkgVer>
+
+    <!-- Note: Special handling is performed for System.Text.Json. -->
+    <SystemTextEncodingsWebMinimumOutOfBandPkgVer>[4.7.2,)</SystemTextEncodingsWebMinimumOutOfBandPkgVer>
+    <SystemTextJsonMinimumOutOfBandPkgVer>[4.7.2,)</SystemTextJsonMinimumOutOfBandPkgVer>
+    <SystemTextJsonLatestNet6OutOfBandPkgVer>[6.0.10,)</SystemTextJsonLatestNet6OutOfBandPkgVer>
+    <SystemTextJsonLatestNet8OutOfBandPkgVer>[8.0.5,)</SystemTextJsonLatestNet8OutOfBandPkgVer>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,28 +65,5 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="$(MicrosoftNETFrameworkReferenceAssembliesPkgVer)" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers" Version="$(StyleCopAnalyzersPkgVer)" Condition="'$(SkipAnalysis)'!='true'" PrivateAssets="All" />
-    <PackageReference Include="Microsoft.CodeCoverage" Version="$(MicrosoftCodeCoveragePkgVer)" Condition="'$(Configuration)'=='Release'" PrivateAssets="All" />
   </ItemGroup>
-
-  <ItemGroup Condition="'$(IncludeSharedInstrumentationSource)'=='true'">
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\ActivityInstrumentationHelper.cs" Link="Includes\ActivityInstrumentationHelper.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\DiagnosticSourceListener.cs" Link="Includes\DiagnosticSourceListener.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\DiagnosticSourceSubscriber.cs" Link="Includes\DiagnosticSourceSubscriber.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\InstrumentationEventSource.cs" Link="Includes\InstrumentationEventSource.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\ListenerHandler.cs" Link="Includes\ListenerHandler.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\MultiTypePropertyFetcher.cs" Link="Includes\MultiTypePropertyFetcher.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\DiagnosticSourceInstrumentation\PropertyFetcher.cs" Link="Includes\PropertyFetcher.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\Api\ExceptionExtensions.cs" Link="Includes\ExceptionExtensions.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\Api\SemanticConventions.cs" Link="Includes\SemanticConventions.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\Api\SpanAttributeConstants.cs" Link="Includes\SpanAttributeConstants.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\Api\SpanHelper.cs" Link="Includes\SpanHelper.cs" />
-    <Compile Include="$(RepoRoot)\src\OpenTelemetry.Contrib.Shared\Api\StatusHelper.cs" Link="Includes\StatusHelper.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(IncludeSharedTestSource)'=='true'">
-    <Compile Include="$(RepoRoot)\test\OpenTelemetry.Contrib.Tests.Shared\TestSampler.cs" Link="Includes\TestSampler.cs" />
-    <Compile Include="$(RepoRoot)\test\OpenTelemetry.Contrib.Tests.Shared\TestActivityExportProcessor.cs" Link="Includes\TestActivityExportProcessor.cs" />
-    <Compile Include="$(RepoRoot)\test\OpenTelemetry.Contrib.Tests.Shared\TestActivityProcessor.cs" Link="Includes\TestActivityProcessor.cs" />
-  </ItemGroup>
-
 </Project>

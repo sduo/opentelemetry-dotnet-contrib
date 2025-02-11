@@ -1,18 +1,5 @@
-// <copyright file="CommonSchemaJsonSerializationHelper.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Globalization;
 using System.Text.Json;
@@ -22,9 +9,21 @@ namespace OpenTelemetry.Exporter.OneCollector;
 
 internal static class CommonSchemaJsonSerializationHelper
 {
-#if NET6_0_OR_GREATER
+#if NET
     public const int MaximumStackAllocSizeInBytes = 256;
 #endif
+
+    public const char OneCollectorTenancySymbol = 'o';
+
+    public static readonly byte[] NewLine = "\n"u8.ToArray();
+
+    public static readonly JsonEncodedText VersionProperty = JsonEncodedText.Encode("ver");
+    public static readonly JsonEncodedText Version4Value = JsonEncodedText.Encode("4.0");
+    public static readonly JsonEncodedText NameProperty = JsonEncodedText.Encode("name");
+    public static readonly JsonEncodedText TimeProperty = JsonEncodedText.Encode("time");
+    public static readonly JsonEncodedText IKeyProperty = JsonEncodedText.Encode("iKey");
+    public static readonly JsonEncodedText ExtensionsProperty = JsonEncodedText.Encode("ext");
+    public static readonly JsonEncodedText DataProperty = JsonEncodedText.Encode("data");
 
     public static void SerializeKeyValueToJson(string key, object? value, Utf8JsonWriter writer)
     {
@@ -102,7 +101,7 @@ internal static class CommonSchemaJsonSerializationHelper
                 writer.WriteStringValue(v);
                 return;
 
-#if NET7_0_OR_GREATER
+#if NET
             case DateOnly v:
                 JsonMetadataServices.DateOnlyConverter.Write(writer, v, null!);
                 return;
@@ -112,7 +111,7 @@ internal static class CommonSchemaJsonSerializationHelper
                 JsonMetadataServices.TimeSpanConverter.Write(writer, v, null!);
                 return;
 
-#if NET7_0_OR_GREATER
+#if NET
             case TimeOnly v:
                 JsonMetadataServices.TimeOnlyConverter.Write(writer, v, null!);
                 return;
@@ -146,6 +145,10 @@ internal static class CommonSchemaJsonSerializationHelper
                 SerializeArrayValueToJson(v, writer);
                 return;
 
+            case IReadOnlyList<KeyValuePair<string, object?>> v:
+                SerializeMapValueToJson(v, writer);
+                return;
+
             case IEnumerable<KeyValuePair<string, object?>> v:
                 SerializeMapValueToJson(v, writer);
                 return;
@@ -168,6 +171,25 @@ internal static class CommonSchemaJsonSerializationHelper
         writer.WriteEndArray();
     }
 
+    private static void SerializeMapValueToJson(IReadOnlyList<KeyValuePair<string, object?>> value, Utf8JsonWriter writer)
+    {
+        writer.WriteStartObject();
+
+        for (var i = 0; i < value.Count; i++)
+        {
+            var element = value[i];
+
+            if (string.IsNullOrEmpty(element.Key))
+            {
+                continue;
+            }
+
+            SerializeKeyValueToJson(element.Key, element.Value, writer);
+        }
+
+        writer.WriteEndObject();
+    }
+
     private static void SerializeMapValueToJson(IEnumerable<KeyValuePair<string, object?>> value, Utf8JsonWriter writer)
     {
         writer.WriteStartObject();
@@ -187,11 +209,11 @@ internal static class CommonSchemaJsonSerializationHelper
 
     private static void SerializeObjectValueToJson(object value, Utf8JsonWriter writer)
     {
-#if NET6_0_OR_GREATER
+#if NET
         if (value is ISpanFormattable spanFormattable)
         {
             Span<char> destination = stackalloc char[MaximumStackAllocSizeInBytes / 2];
-            if (spanFormattable.TryFormat(destination, out int charsWritten, string.Empty, CultureInfo.InvariantCulture))
+            if (spanFormattable.TryFormat(destination, out var charsWritten, string.Empty, CultureInfo.InvariantCulture))
             {
                 writer.WriteStringValue(destination.Slice(0, charsWritten));
                 return;

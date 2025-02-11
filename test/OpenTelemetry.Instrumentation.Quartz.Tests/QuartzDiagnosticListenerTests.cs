@@ -1,26 +1,7 @@
-// <copyright file="QuartzDiagnosticListenerTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Moq;
 using OpenTelemetry.Trace;
 using Quartz;
 using Xunit;
@@ -40,14 +21,14 @@ public class QuartzDiagnosticListenerTests
     public async Task Should_Create_Activity()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
             .AddQuartzInstrumentation()
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
         schedulerConfig.UseDefaultThreadPool(x => x.MaxConcurrency = 10);
@@ -57,7 +38,7 @@ public class QuartzDiagnosticListenerTests
         scheduler.Context.Put("DATESTAMPS", jobExecTimestamps);
         await scheduler.Start();
 
-        JobDataMap jobDataMap = new JobDataMap { { "A", "B" } };
+        var jobDataMap = new JobDataMap { { "A", "B" } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJob>()
@@ -78,8 +59,8 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        Assert.Equal(3, activityProcessor.Invocations.Count);
-        var activity = (Activity)activityProcessor.Invocations[1].Arguments[0];
+        Assert.Single(exportedItems);
+        var activity = exportedItems[0];
 
         Assert.Contains("execute ", activity.DisplayName);
         Assert.Equal("Quartz.Job.Execute", activity.OperationName);
@@ -93,10 +74,10 @@ public class QuartzDiagnosticListenerTests
     public async Task Should_Create_Activity_And_Enrich_When_Enrich()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
 
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
@@ -112,7 +93,7 @@ public class QuartzDiagnosticListenerTests
                         }
                     }
                 })
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
 
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
@@ -124,7 +105,7 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Start();
 
         var testId = Guid.NewGuid().ToString();
-        JobDataMap jobDataMap = new JobDataMap { { "TestId", testId } };
+        var jobDataMap = new JobDataMap { { "TestId", testId } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJob>()
@@ -145,8 +126,8 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        Assert.Equal(3, activityProcessor.Invocations.Count);
-        var activity = (Activity)activityProcessor.Invocations[1].Arguments[0];
+        Assert.Single(exportedItems);
+        var activity = exportedItems[0];
 
         Assert.Equal("Quartz.Job.Execute", activity.OperationName);
         Assert.Equal(ActivityKind.Internal, activity.Kind);
@@ -160,16 +141,16 @@ public class QuartzDiagnosticListenerTests
     public async Task Should_Record_Exception_When_Record_Exception_Enabled()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
 
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
             .AddQuartzInstrumentation(q =>
                 q.RecordException = true)
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
 
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
@@ -181,7 +162,7 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Start();
 
         var testId = Guid.NewGuid().ToString();
-        JobDataMap jobDataMap = new JobDataMap { { "TestId", testId } };
+        var jobDataMap = new JobDataMap { { "TestId", testId } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJobExecutionExceptionJob>()
@@ -202,22 +183,23 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        Assert.Equal(3, activityProcessor.Invocations.Count);
-        var activity = (Activity)activityProcessor.Invocations[1].Arguments[0];
+        Assert.Single(exportedItems);
+        var activity = exportedItems[0];
 
-        Assert.Equal("exception", activity.Events.First().Name);
-        Assert.Equal("ERROR", activity.Tags.SingleOrDefault(t => t.Key.Equals(SpanAttributeConstants.StatusCodeKey)).Value);
-        Assert.Equal("Catch me if you can!", activity.Tags.SingleOrDefault(t => t.Key.Equals(SpanAttributeConstants.StatusDescriptionKey)).Value);
+        Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        var exception = Assert.Single(activity.Events);
+        Assert.Equal("exception", exception.Name);
+        Assert.Equal("Catch me if you can!", exception.Tags.SingleOrDefault(t => t.Key.Equals("exception.message")).Value);
     }
 
     [Fact]
     public async Task Should_Enrich_Exception_When_Record_Exception_Enabled_And_Enrich()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
 
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
@@ -236,7 +218,7 @@ public class QuartzDiagnosticListenerTests
                     }
                 };
             })
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
 
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
@@ -248,7 +230,7 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Start();
 
         var testId = Guid.NewGuid().ToString();
-        JobDataMap jobDataMap = new JobDataMap { { "TestId", testId } };
+        var jobDataMap = new JobDataMap { { "TestId", testId } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJobExecutionExceptionJob>()
@@ -269,11 +251,13 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        Assert.Equal(3, activityProcessor.Invocations.Count);
-        var activity = (Activity)activityProcessor.Invocations[1].Arguments[0];
+        Assert.Single(exportedItems);
+        var activity = exportedItems[0];
 
-        Assert.Equal("ERROR", activity.Tags.SingleOrDefault(t => t.Key.Equals(SpanAttributeConstants.StatusCodeKey)).Value);
-        Assert.Equal("Catch me if you can!", activity.Tags.SingleOrDefault(t => t.Key.Equals(SpanAttributeConstants.StatusDescriptionKey)).Value);
+        Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        var exception = Assert.Single(activity.Events);
+        Assert.Equal("exception", exception.Name);
+        Assert.Equal("Catch me if you can!", exception.Tags.SingleOrDefault(t => t.Key.Equals("exception.message")).Value);
         Assert.Equal(testId, activity.Tags.SingleOrDefault(t => t.Key.Equals("test.id")).Value);
     }
 
@@ -281,10 +265,10 @@ public class QuartzDiagnosticListenerTests
     public async Task Should_Creates_Activity_Event_On_Job_Execution_Exception()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
             .AddQuartzInstrumentation(q =>
@@ -298,7 +282,7 @@ public class QuartzDiagnosticListenerTests
                     }
                 };
             })
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
 
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
@@ -310,7 +294,7 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Start();
 
         var testId = Guid.NewGuid().ToString();
-        JobDataMap jobDataMap = new JobDataMap { { "TestId", testId } };
+        var jobDataMap = new JobDataMap { { "TestId", testId } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJobExecutionExceptionJob>()
@@ -331,8 +315,8 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        Assert.Equal(3, activityProcessor.Invocations.Count);
-        var activity = (Activity)activityProcessor.Invocations[1].Arguments[0];
+        Assert.Single(exportedItems);
+        var activity = exportedItems[0];
         Assert.Equal("exception", activity.Events.First().Name);
         Assert.Equal("Quartz.JobExecutionException", activity.Events.First().Tags.SingleOrDefault(t => t.Key.Equals(SemanticConventions.AttributeExceptionType)).Value);
         Assert.Equal("Catch me if you can!", activity.Events.First().Tags.SingleOrDefault(t => t.Key.Equals(SemanticConventions.AttributeExceptionMessage)).Value);
@@ -342,18 +326,18 @@ public class QuartzDiagnosticListenerTests
     public async Task Should_Not_Record_Activity_When_Trace_Operation_Is_Not_Present()
     {
         // Arrange
-        Barrier barrier = new Barrier(2);
-        List<DateTime> jobExecTimestamps = new List<DateTime>();
+        var barrier = new Barrier(2);
+        List<DateTime> jobExecTimestamps = [];
 
-        var activityProcessor = new Mock<BaseProcessor<Activity>>();
+        var exportedItems = new List<Activity>();
 
         using var tel = Sdk.CreateTracerProviderBuilder()
             .SetSampler(new AlwaysOnSampler())
             .AddQuartzInstrumentation(q =>
             {
-                q.TracedOperations = new HashSet<string>();
+                q.TracedOperations = [];
             })
-            .AddProcessor(activityProcessor.Object)
+            .AddInMemoryExporter(exportedItems)
             .Build();
 
         var schedulerConfig = SchedulerBuilder.Create("AUTO", "Scheduler");
@@ -365,7 +349,7 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Start();
 
         var testId = Guid.NewGuid().ToString();
-        JobDataMap jobDataMap = new JobDataMap { { "TestId", testId } };
+        var jobDataMap = new JobDataMap { { "TestId", testId } };
 
         var name = Guid.NewGuid().ToString();
         var job = JobBuilder.Create<TestJob>()
@@ -386,8 +370,6 @@ public class QuartzDiagnosticListenerTests
         await scheduler.Shutdown(true);
 
         // Assert
-        var activities = activityProcessor.Invocations.SelectMany(i => i.Arguments.OfType<Activity>())
-            .Where(a => a.IsAllDataRequested);
-        Assert.Empty(activities);
+        Assert.Empty(exportedItems);
     }
 }

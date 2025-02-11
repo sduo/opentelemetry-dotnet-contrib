@@ -1,20 +1,7 @@
-// <copyright file="SpanSender.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
+
 using System.Collections.Concurrent;
-using System.Threading.Tasks;
 
 namespace OpenTelemetry.Exporter.Instana.Implementation;
 
@@ -23,7 +10,7 @@ internal sealed class SpanSender : ISpanSender
 #pragma warning restore CA1001 // Types that own disposable fields should be disposable
 {
     private readonly Task queueSenderTask;
-    private readonly ConcurrentQueue<InstanaSpan> spansQueue = new ConcurrentQueue<InstanaSpan>();
+    private readonly ConcurrentQueue<InstanaSpan> spansQueue = new();
 
     public SpanSender()
     {
@@ -46,7 +33,7 @@ internal sealed class SpanSender : ISpanSender
         while (true)
         {
             // check if we can send spans
-            if (this.spansQueue.TryPeek(out InstanaSpan _))
+            if (this.spansQueue.TryPeek(out var _))
             {
                 // actually send spans
                 await Transport.SendSpansAsync(this.spansQueue).ConfigureAwait(false);

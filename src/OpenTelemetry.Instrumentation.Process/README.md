@@ -1,7 +1,13 @@
 # Process Instrumentation for OpenTelemetry .NET
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Process.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Process)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Process.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Process)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Beta](../../README.md#beta)|
+| Code Owners   |  [@Yun-Ting](https://github.com/Yun-Ting)|
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Process)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Process)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Process)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Process)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.Process)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.Process)
 
 This is an [Instrumentation
 Library](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library),
@@ -10,7 +16,7 @@ telemetry about process behavior.
 
 The process metric instruments being implemented are following OpenTelemetry
 [metrics semantic
-conventions](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/semantic_conventions/process-metrics.md#metric-instruments).
+conventions](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/system/process-metrics.md).
 
 ## Steps to enable OpenTelemetry.Instrumentation.Process
 
@@ -100,9 +106,9 @@ process.
 
 Total CPU seconds broken down by states.
 
-| Units | Instrument Type   | Value Type | Attribute Key(s) | Attribute Values |
-|-------|-------------------|------------|------------------|------------------|
-|  `s`  | ObservableCounter | `Double`   | state            | user, system     |
+| Units | Instrument Type   | Value Type | Attribute Key(s)  | Attribute Values |
+|-------|-------------------|------------|-------------------|------------------|
+|  `s`  | ObservableCounter | `Double`   | process.cpu.state | user, system     |
 
 The APIs used to retrieve the values are:
 
@@ -123,19 +129,20 @@ The number of processors (CPU cores) available to the current process.
 The API used to retrieve the value is
 [System.Environment.ProcessorCount](https://learn.microsoft.com/dotnet/api/system.environment.processorcount).
 
-> **Note** This metric is under
+> [!NOTE]
+> This metric is under
 > [discussion](https://github.com/open-telemetry/opentelemetry-specification/issues/3200)
 and not part of the [Process Metrics
-Spec](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/semantic_conventions/process-metrics.md)
+Spec](https://github.com/open-telemetry/semantic-conventions/blob/main/docs/system/process-metrics.md)
 at this time.
 
-### process.threads
+### process.thread.count
 
 Process threads count.
 
 | Units      | Instrument Type         | Value Type |
 |------------|-------------------------|------------|
-| `{threads}`| ObservableUpDownCounter | `Int32`    |
+| `{thread}` | ObservableUpDownCounter | `Int32`    |
 
 The API used to retrieve the value is:
 

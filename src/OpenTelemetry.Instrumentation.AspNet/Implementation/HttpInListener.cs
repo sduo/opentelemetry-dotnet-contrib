@@ -1,23 +1,8 @@
-// <copyright file="HttpInListener.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics;
 using System.Web;
-using System.Web.Routing;
 using OpenTelemetry.Context.Propagation;
 using OpenTelemetry.Internal;
 using OpenTelemetry.Trace;
@@ -26,11 +11,11 @@ namespace OpenTelemetry.Instrumentation.AspNet.Implementation;
 
 internal sealed class HttpInListener : IDisposable
 {
-    private readonly PropertyFetcher<object> routeFetcher = new("Route");
-    private readonly PropertyFetcher<string> routeTemplateFetcher = new("RouteTemplate");
-    private readonly AspNetInstrumentationOptions options;
+    private readonly HttpRequestRouteHelper routeHelper = new();
+    private readonly AspNetTraceInstrumentationOptions options;
+    private readonly RequestDataHelper requestDataHelper = new(configureByHttpKnownMethodsEnvironmentalVariable: true);
 
-    public HttpInListener(AspNetInstrumentationOptions options)
+    public HttpInListener(AspNetTraceInstrumentationOptions options)
     {
         Guard.ThrowIfNull(options);
 
@@ -48,16 +33,6 @@ internal sealed class HttpInListener : IDisposable
         TelemetryHttpModule.Options.OnRequestStartedCallback -= this.OnStartActivity;
         TelemetryHttpModule.Options.OnRequestStoppedCallback -= this.OnStopActivity;
         TelemetryHttpModule.Options.OnExceptionCallback -= this.OnException;
-    }
-
-    /// <summary>
-    /// Gets the OpenTelemetry standard uri tag value for a span based on its request <see cref="Uri"/>.
-    /// </summary>
-    /// <param name="uri"><see cref="Uri"/>.</param>
-    /// <returns>Span uri value.</returns>
-    private static string GetUriTagValueFromRequestUri(Uri uri)
-    {
-        return string.IsNullOrEmpty(uri.UserInfo) ? uri.ToString() : string.Concat(uri.Scheme, Uri.SchemeDelimiter, uri.Authority, uri.PathAndQuery, uri.Fragment);
     }
 
     private void OnStartActivity(Activity activity, HttpContext context)
@@ -89,29 +64,41 @@ internal sealed class HttpInListener : IDisposable
             }
 
             var request = context.Request;
-            var requestValues = request.Unvalidated;
 
-            // see the spec https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/semantic_conventions/http.md
-            var path = requestValues.Path;
-            activity.DisplayName = path;
+            // see the spec https://github.com/open-telemetry/semantic-conventions/blob/v1.24.0/docs/http/http-spans.md
+            var originalHttpMethod = request.HttpMethod;
+            this.requestDataHelper.SetActivityDisplayName(activity, originalHttpMethod);
 
-            if (request.Url.Port == 80 || request.Url.Port == 443)
+            var url = request.Url;
+            activity.SetTag(SemanticConventions.AttributeServerAddress, url.Host);
+            activity.SetTag(SemanticConventions.AttributeServerPort, url.Port);
+            activity.SetTag(SemanticConventions.AttributeUrlScheme, url.Scheme);
+
+            this.requestDataHelper.SetHttpMethodTag(activity, originalHttpMethod);
+
+            var protocolVersion = RequestDataHelperExtensions.GetHttpProtocolVersion(request);
+            if (!string.IsNullOrEmpty(protocolVersion))
             {
-                activity.SetTag(SemanticConventions.AttributeHttpHost, request.Url.Host);
-            }
-            else
-            {
-                activity.SetTag(SemanticConventions.AttributeHttpHost, request.Url.Host + ":" + request.Url.Port);
+                activity.SetTag(SemanticConventions.AttributeNetworkProtocolVersion, protocolVersion);
             }
 
-            activity.SetTag(SemanticConventions.AttributeHttpMethod, request.HttpMethod);
-            activity.SetTag(SemanticConventions.AttributeHttpTarget, path);
-            activity.SetTag(SemanticConventions.AttributeHttpUserAgent, request.UserAgent);
-            activity.SetTag(SemanticConventions.AttributeHttpUrl, GetUriTagValueFromRequestUri(request.Url));
+            // TODO url.query should be sanitized
+            var query = url.Query;
+            if (!string.IsNullOrEmpty(query))
+            {
+                var queryString = query.StartsWith("?", StringComparison.InvariantCulture) ? query.Substring(1) : query;
+                activity.SetTag(SemanticConventions.AttributeUrlQuery, this.options.DisableUrlQueryRedaction ? queryString : RedactionHelper.GetRedactedQueryString(queryString));
+            }
+
+            var userAgent = request.UserAgent;
+            if (!string.IsNullOrEmpty(userAgent))
+            {
+                activity.SetTag(SemanticConventions.AttributeUserAgentOriginal, userAgent);
+            }
 
             try
             {
-                this.options.Enrich?.Invoke(activity, "OnStartActivity", request);
+                this.options.EnrichWithHttpRequest?.Invoke(activity, request);
             }
             catch (Exception ex)
             {
@@ -126,44 +113,25 @@ internal sealed class HttpInListener : IDisposable
         {
             var response = context.Response;
 
-            activity.SetTag(SemanticConventions.AttributeHttpStatusCode, response.StatusCode);
+            activity.SetTag(SemanticConventions.AttributeHttpResponseStatusCode, response.StatusCode);
 
             if (activity.Status == ActivityStatusCode.Unset)
             {
                 activity.SetStatus(SpanHelper.ResolveActivityStatusForHttpStatusCode(activity.Kind, response.StatusCode));
             }
 
-            var routeData = context.Request.RequestContext.RouteData;
-
-            string template = null;
-            if (routeData.Values.TryGetValue("MS_SubRoutes", out object msSubRoutes))
-            {
-                // WebAPI attribute routing flows here. Use reflection to not take a dependency on microsoft.aspnet.webapi.core\[version]\lib\[framework]\System.Web.Http.
-
-                if (msSubRoutes is Array attributeRouting && attributeRouting.Length == 1)
-                {
-                    var subRouteData = attributeRouting.GetValue(0);
-
-                    _ = this.routeFetcher.TryFetch(subRouteData, out var route);
-                    _ = this.routeTemplateFetcher.TryFetch(route, out template);
-                }
-            }
-            else if (routeData.Route is Route route)
-            {
-                // MVC + WebAPI traditional routing & MVC attribute routing flow here.
-                template = route.Url;
-            }
+            var template = this.routeHelper.GetRouteTemplate(context.Request);
 
             if (!string.IsNullOrEmpty(template))
             {
-                // Override the name that was previously set to the path part of URL.
-                activity.DisplayName = template;
+                // Override the name that was previously set to the normalized HTTP method/HTTP
+                this.requestDataHelper.SetActivityDisplayName(activity, context.Request.HttpMethod, template);
                 activity.SetTag(SemanticConventions.AttributeHttpRoute, template);
             }
 
             try
             {
-                this.options.Enrich?.Invoke(activity, "OnStopActivity", response);
+                this.options.EnrichWithHttpResponse?.Invoke(activity, response);
             }
             catch (Exception ex)
             {
@@ -178,14 +146,15 @@ internal sealed class HttpInListener : IDisposable
         {
             if (this.options.RecordException)
             {
-                activity.RecordException(exception);
+                activity.AddException(exception);
             }
 
             activity.SetStatus(ActivityStatusCode.Error, exception.Message);
+            activity.SetTag(SemanticConventions.AttributeErrorType, exception.GetType().FullName);
 
             try
             {
-                this.options.Enrich?.Invoke(activity, "OnException", exception);
+                this.options.EnrichWithException?.Invoke(activity, exception);
             }
             catch (Exception ex)
             {

@@ -1,7 +1,13 @@
 # Geneva Exporter for OpenTelemetry .NET
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Exporter.Geneva.svg)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Geneva)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Exporter.Geneva.svg)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Geneva)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Stable](../../README.md#stable)|
+| Code Owners   |  [@codeblanch](https://github.com/codeblanch), [@rajkumar-rangaraj](https://github.com/rajkumar-rangaraj/), [@TimothyMothra](https://github.com/TimothyMothra), [@xiang17](https://github.com/xiang17) |
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Exporter.Geneva)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Geneva)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Exporter.Geneva)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Geneva)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Exporter.Geneva)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Exporter.Geneva)
 
 The Geneva Exporter exports telemetry to
 [Event Tracing for Windows (ETW)](https://docs.microsoft.com/windows/win32/etw/about-event-tracing)
@@ -21,13 +27,6 @@ The three types of telemetry are handled separately in OpenTelemetry.
 Therefore, each type of telemetry **must be** enabled separately.
 
 ### Enable Logs
-
-Install the latest stable version of
-[`Microsoft.Extensions.Logging`](https://www.nuget.org/packages/Microsoft.Extensions.Logging/)
-
-```shell
-dotnet add package OpenTelemetry.Exporter.Geneva
-```
 
 This snippet shows how to configure the Geneva Exporter for Logs
 
@@ -56,7 +55,8 @@ provider, including the OpenTelemetry provider. `OpenTelemetry` is the
 for `OpenTelemetryLoggerProvider`, that may be used when configuring filtering
 rules.
 
-**NOTE:** _Some application types (e.g. [ASP.NET
+> [!NOTE]
+> Some application types (e.g. [ASP.NET
 Core](https://docs.microsoft.com/aspnet/core/fundamentals/logging/#configure-logging-1))
 have default logging settings. Please review them to make sure
 `OpenTelemetryLoggingProvider` is configured to receive Logs of appropriate
@@ -95,10 +95,20 @@ On Windows the connection string has the format `EtwSession={ETW session}`.
 
 A list of fields which should be stored as individual table columns.
 
+* If null, all fields will be stored as individual columns.
+* If non-null, only those fields named in the list will be stored as individual columns.
+
 #### `PrepopulatedFields` (optional)
 
 This is a collection of fields that will be applied to all the Logs and Traces
 sent through this exporter.
+
+#### `IncludeTraceStateForSpan` (optional)
+
+Export `activity.TraceStateString` as the value for Part B `traceState` field for
+Spans when the `IncludeTraceStateForSpan` option is set to `true`.
+This is an opt-in feature and the default value is `false`.
+Note that this is for Spans only and not for LogRecord.
 
 #### `TableNameMappings` (optional)
 
@@ -110,7 +120,7 @@ The default table name used for Traces is `Span`. To change the table name for
 Traces add an entry with the key `Span` and set the value to the desired custom
 table name.
 
-> **Note**
+> [!NOTE]
 > Only a single table name is supported for Traces.
 
 ##### Log table name mappings
@@ -160,7 +170,7 @@ values.
   * `ILogger<MyPartner.Product.Thing>`: This is marked as pass-through ("*") so
     it will be sanitized as "MyPartnerProductThing" table name
 
-##### Pass-through table name mapping rules
+###### Pass-through table name mapping rules
 
 When "pass-through" mapping is enabled for a given log message the runtime
 [category](https://docs.microsoft.com/dotnet/core/extensions/logging#log-category)
@@ -173,6 +183,57 @@ value will be converted into a valid table name.
 * Any non-ASCII letter or number will be removed.
 
 * Only the first 50 valid characters will be used.
+
+#### How to configure GenevaExporterOptions using dependency injection
+
+##### Tracing
+
+> [!NOTE]
+> In this example named options ('GenevaTracing') are used. This is because
+  `GenevaExporterOptions` is shared by both logging & tracing. In a future
+  version named options will also be supported in logging so it is recommended
+  to use named options now for tracing in order to future-proof this code.
+
+```csharp
+// Step 1: Turn on tracing and register GenevaTraceExporter.
+builder.Services.AddOpenTelemetry()
+    .WithTracing(builder => builder
+        .AddGenevaTraceExporter(
+            "GenevaTracing", // Tell GenevaTraceExporter to retrieve options using the 'GenevaTracing' name
+            _ => { }));
+
+// Step 2: Use Options API to configure GenevaExporterOptions using services
+// retrieved from the dependency injection container
+builder.Services
+    .AddOptions<GenevaExporterOptions>("GenevaTracing") // Register options with the 'GenevaTracing' name
+    .Configure<IConfiguration>((exporterOptions, configuration) =>
+    {
+        exporterOptions.ConnectionString = configuration.GetValue<string>("OpenTelemetry:Tracing:GenevaConnectionString")
+            ?? throw new InvalidOperationException("GenevaConnectionString was not found in application configuration");
+    });
+```
+
+##### Logging
+
+```csharp
+// Step 1: Turn on logging.
+builder.Logging.AddOpenTelemetry();
+
+// Step 2: Use Options API to configure OpenTelemetryLoggerOptions using
+// services retrieved from the dependency injection container
+builder.Services
+    .AddOptions<OpenTelemetryLoggerOptions>()
+    .Configure<IConfiguration>((loggerOptions, configuration) =>
+    {
+        // Add GenevaLogExporter and configure GenevaExporterOptions using
+        // services retrieved from the dependency injection container
+        loggerOptions.AddGenevaLogExporter(exporterOptions =>
+        {
+            exporterOptions.ConnectionString = configuration.GetValue<string>("OpenTelemetry:Logging:GenevaConnectionString")
+                ?? throw new InvalidOperationException("GenevaConnectionString was not found in application configuration");
+        });
+    });
+```
 
 ### Enable Metrics
 
@@ -207,15 +268,102 @@ On Linux provide an `Endpoint` in addition to the `Account` and `Namespace`.
 For example:
 `Endpoint=unix:{UDS Path};Account={MetricAccount};Namespace={MetricNamespace}`.
 
+##### OtlpProtobufEncoding
+
+An experimental feature flag is available to opt-into changing the underlying
+serialization format to binary protobuf following the schema defined in [OTLP
+specification](https://github.com/open-telemetry/opentelemetry-proto/blob/v1.1.0/opentelemetry/proto/metrics/v1/metrics.proto).
+
+When using OTLP protobuf encoding `Account` and `Namespace` are **NOT** required
+to be set on the `ConnectionString`. The recommended approach is to use
+OpenTelemetry Resource instead:
+
+```csharp
+using var meterProvider = Sdk.CreateMeterProviderBuilder()
+    // Other configuration not shown
+    .ConfigureResource(r => r.AddAttributes(
+        new Dictionary<string, object>()
+        {
+            ["_microsoft_metrics_account"] = "MetricsAccountGoesHere",
+            ["_microsoft_metrics_namespace"] = "MetricsNamespaceGoesHere",
+        }))
+    .AddGenevaMetricExporter(options =>
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            options.ConnectionString = "PrivatePreviewEnableOtlpProtobufEncoding=true";
+        }
+        else
+        {
+            // Note: 1.10.0+ version required to use OTLP protobuf encoding on Linux
+
+            // Use Unix domain socket mode
+            options.ConnectionString = "Endpoint=unix:{OTLP UDS Path};PrivatePreviewEnableOtlpProtobufEncoding=true";
+
+            // Use user_events mode (preferred but considered experimental as this is a new capability in Linux kernel)
+            // options.ConnectionString = "PrivatePreviewEnableOtlpProtobufEncoding=true";
+        }
+    })
+    .Build();
+```
+
+###### Windows
+
+To send metric data over ETW using OTLP protobuf encoding set
+`PrivatePreviewEnableOtlpProtobufEncoding=true` on the `ConnectionString`.
+
+###### Linux
+
+As of `1.10.0` `PrivatePreviewEnableOtlpProtobufEncoding=true` is also supported
+on Linux.
+
+###### When using unix domain socket
+
+To send metric data over UDS using OTLP protobuf encoding set the `Endpoint` to
+use the correct `OtlpSocketPath` path and set
+`PrivatePreviewEnableOtlpProtobufEncoding=true` on the `ConnectionString`:
+`Endpoint=unix:{OTLP UDS Path};PrivatePreviewEnableOtlpProtobufEncoding=true`.
+
+> [!IMPORTANT]
+> OTLP over UDS requires a different socket path than TLV over UDS.
+
+###### When using user_events
+
+> [!IMPORTANT]
+> [user_events](https://docs.kernel.org/trace/user_events.html) are a newer
+> feature of the Linux kernel and require a distro with the feature enabled.
+
+To send metric data over user_events using OTLP protobuf encoding do **NOT**
+specify an `Endpoint` and set `PrivatePreviewEnableOtlpProtobufEncoding=true` on
+the `ConnectionString`.
+
 #### `MetricExportIntervalMilliseconds` (optional)
 
 Set the exporter's periodic time interval to export Metrics. The default value
-is 20000 milliseconds.
+is 60000 milliseconds.
 
 #### `PrepopulatedMetricDimensions` (optional)
 
 This is a collection of the dimensions that will be applied to _every_ metric
 exported by the exporter.
+
+#### How to configure GenevaMetricExporterOptions using dependency injection
+
+```csharp
+// Step 1: Turn on metrics and register GenevaMetricExporter.
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(builder => builder.AddGenevaMetricExporter());
+
+// Step 2: Use Options API to configure GenevaMetricExporterOptions using
+// services retrieved from the dependency injection container
+builder.Services
+    .AddOptions<GenevaMetricExporterOptions>()
+    .Configure<IConfiguration>((exporterOptions, configuration) =>
+    {
+        exporterOptions.ConnectionString = configuration.GetValue<string>("OpenTelemetry:Metrics:GenevaConnectionString")
+            ?? throw new InvalidOperationException("GenevaConnectionString was not found in application configuration");
+    });
+```
 
 ## Troubleshooting
 

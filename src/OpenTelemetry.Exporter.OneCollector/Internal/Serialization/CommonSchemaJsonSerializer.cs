@@ -1,18 +1,5 @@
-// <copyright file="CommonSchemaJsonSerializer.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Diagnostics;
 using System.Text.Json;
@@ -24,19 +11,9 @@ namespace OpenTelemetry.Exporter.OneCollector;
 internal abstract class CommonSchemaJsonSerializer<T> : ISerializer<T>
     where T : class
 {
-    protected static readonly JsonEncodedText VersionProperty = JsonEncodedText.Encode("ver");
-    protected static readonly JsonEncodedText Version4Value = JsonEncodedText.Encode("4.0");
-    protected static readonly JsonEncodedText NameProperty = JsonEncodedText.Encode("name");
-    protected static readonly JsonEncodedText TimeProperty = JsonEncodedText.Encode("time");
-    protected static readonly JsonEncodedText IKeyProperty = JsonEncodedText.Encode("iKey");
-    protected static readonly JsonEncodedText DataProperty = JsonEncodedText.Encode("data");
-
-    private const char OneCollectorTenancySymbol = 'o';
-
-    private static readonly byte[] NewLine = "\n"u8.ToArray();
-
     private readonly int maxPayloadSizeInBytes;
     private readonly int maxNumberOfItemsPerPayload;
+    private readonly string itemType = typeof(T).Name;
 
     protected CommonSchemaJsonSerializer(
         string tenantToken,
@@ -48,7 +25,7 @@ internal abstract class CommonSchemaJsonSerializer<T> : ISerializer<T>
         this.maxPayloadSizeInBytes = maxPayloadSizeInBytes;
         this.maxNumberOfItemsPerPayload = maxNumberOfItemsPerPayload;
 
-        this.TenantTokenWithTenancySystemSymbol = JsonEncodedText.Encode($"{OneCollectorTenancySymbol}:{tenantToken}");
+        this.TenantTokenWithTenancySystemSymbol = JsonEncodedText.Encode($"{CommonSchemaJsonSerializationHelper.OneCollectorTenancySymbol}:{tenantToken}");
     }
 
     public abstract string Description { get; }
@@ -57,37 +34,46 @@ internal abstract class CommonSchemaJsonSerializer<T> : ISerializer<T>
 
     protected JsonEncodedText TenantTokenWithTenancySystemSymbol { get; }
 
-    public void SerializeBatchOfItemsToStream(Resource resource, in Batch<T> batch, Stream stream, int initialSizeOfPayloadInBytes, out BatchSerializationResult result)
+    public void SerializeBatchOfItemsToStream(
+        Resource resource,
+        ref BatchSerializationState<T> state,
+        Stream stream,
+        int initialSizeOfPayloadInBytes,
+        out BatchSerializationResult result)
     {
         Guard.ThrowIfNull(stream);
 
         var numberOfSerializedItems = 0;
+        var numberOfDroppedItems = 0;
         long payloadSizeInBytes = initialSizeOfPayloadInBytes;
 
-        var writer = ThreadStorageHelper.Utf8JsonWriter;
-        if (writer == null)
-        {
-            writer = ThreadStorageHelper.Utf8JsonWriter = new(
-                stream,
-                new JsonWriterOptions { SkipValidation = true });
-        }
-        else
-        {
-            writer.Reset(stream);
-        }
+        var jsonSerializerState = ThreadStorageHelper.GetCommonSchemaJsonSerializationState(this.itemType, stream);
 
-        foreach (var item in batch)
+        var writer = jsonSerializerState.Writer;
+
+        while (state.TryGetNextItem(out var item))
         {
-            this.SerializeItemToJson(resource, item, writer);
+            jsonSerializerState.BeginItem();
+
+            this.SerializeItemToJson(resource, item!, jsonSerializerState);
 
             var currentItemSizeInBytes = writer.BytesCommitted + writer.BytesPending + 1;
-
-            payloadSizeInBytes += currentItemSizeInBytes;
 
             writer.Flush();
             writer.Reset();
 
-            stream.Write(NewLine, 0, 1);
+            stream.Write(CommonSchemaJsonSerializationHelper.NewLine, 0, 1);
+
+            if (currentItemSizeInBytes >= this.maxPayloadSizeInBytes)
+            {
+                // Note: If an individual item cannot fit inside the max size it
+                // is dropped.
+                numberOfDroppedItems++;
+                stream.SetLength(stream.Position - currentItemSizeInBytes);
+                continue;
+            }
+
+            payloadSizeInBytes += currentItemSizeInBytes;
 
             if (++numberOfSerializedItems >= this.maxNumberOfItemsPerPayload)
             {
@@ -96,9 +82,13 @@ internal abstract class CommonSchemaJsonSerializer<T> : ISerializer<T>
 
             if (payloadSizeInBytes >= this.maxPayloadSizeInBytes)
             {
+                // Note: If the last item written doesn't fit into the max size
+                // it is kept in the buffer and becomes the first item in the
+                // next transmission.
                 result = new BatchSerializationResult
                 {
                     NumberOfItemsSerialized = numberOfSerializedItems,
+                    NumberOfItemsDropped = numberOfDroppedItems,
                     PayloadSizeInBytes = payloadSizeInBytes,
                     PayloadOverflowItemSizeInBytes = currentItemSizeInBytes,
                 };
@@ -109,9 +99,54 @@ internal abstract class CommonSchemaJsonSerializer<T> : ISerializer<T>
         result = new BatchSerializationResult
         {
             NumberOfItemsSerialized = numberOfSerializedItems,
+            NumberOfItemsDropped = numberOfDroppedItems,
             PayloadSizeInBytes = payloadSizeInBytes,
         };
     }
 
-    protected abstract void SerializeItemToJson(Resource resource, T item, Utf8JsonWriter writer);
+    protected static bool AttributeKeyStartWithExtensionPrefix(string attributeKey)
+    {
+        return attributeKey.StartsWith("ext.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    protected static void SerializeResourceToJsonInsideCurrentObject(Resource resource, CommonSchemaJsonSerializationState serializationState)
+    {
+        Debug.Assert(resource != null, "resource was null");
+        Debug.Assert(serializationState != null, "serializationState was null");
+
+        var writer = serializationState!.Writer;
+
+        Debug.Assert(writer != null, "writer was null");
+
+        if (resource!.Attributes is IReadOnlyList<KeyValuePair<string, object?>> resourceAttributeList)
+        {
+            for (var i = 0; i < resourceAttributeList.Count; i++)
+            {
+                var resourceAttribute = resourceAttributeList[i];
+
+                if (AttributeKeyStartWithExtensionPrefix(resourceAttribute.Key))
+                {
+                    serializationState.AddExtensionAttribute(resourceAttribute);
+                    continue;
+                }
+
+                CommonSchemaJsonSerializationHelper.SerializeKeyValueToJson(resourceAttribute.Key, resourceAttribute.Value, writer!);
+            }
+        }
+        else
+        {
+            foreach (var resourceAttribute in resource.Attributes)
+            {
+                if (AttributeKeyStartWithExtensionPrefix(resourceAttribute.Key))
+                {
+                    serializationState.AddExtensionAttribute(resourceAttribute!);
+                    continue;
+                }
+
+                CommonSchemaJsonSerializationHelper.SerializeKeyValueToJson(resourceAttribute.Key, resourceAttribute.Value, writer!);
+            }
+        }
+    }
+
+    protected abstract void SerializeItemToJson(Resource resource, T item, CommonSchemaJsonSerializationState serializationState);
 }

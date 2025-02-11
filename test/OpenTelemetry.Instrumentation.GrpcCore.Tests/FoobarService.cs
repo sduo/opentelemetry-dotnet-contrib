@@ -1,29 +1,11 @@
-// <copyright file="FoobarService.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
-using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 
-namespace OpenTelemetry.Instrumentation.GrpcCore.Test;
+namespace OpenTelemetry.Instrumentation.GrpcCore.Tests;
 
 /// <summary>
 /// Test implementation of foobar.
@@ -53,29 +35,29 @@ internal class FoobarService : Foobar.FoobarBase
     /// <summary>
     /// The default request message.
     /// </summary>
-    internal static readonly FoobarRequest DefaultRequestMessage = new FoobarRequest { Message = "foo" };
+    internal static readonly FoobarRequest DefaultRequestMessage = new() { Message = "foo" };
 
     /// <summary>
     /// The default request message size.
     /// </summary>
-    internal static readonly int DefaultRequestMessageSize = ((IMessage)DefaultRequestMessage).CalculateSize();
+    internal static readonly int DefaultRequestMessageSize = DefaultRequestMessage.CalculateSize();
 
     /// <summary>
     /// The default response message.
     /// </summary>
-    internal static readonly FoobarResponse DefaultResponseMessage = new FoobarResponse { Message = "bar" };
+    internal static readonly FoobarResponse DefaultResponseMessage = new() { Message = "bar" };
 
     /// <summary>
     /// The default request message size.
     /// </summary>
-    internal static readonly int DefaultResponseMessageSize = ((IMessage)DefaultResponseMessage).CalculateSize();
+    internal static readonly int DefaultResponseMessageSize = DefaultResponseMessage.CalculateSize();
 
     /// <summary>
     /// Starts the specified service.
     /// </summary>
     /// <param name="serverInterceptor">The server interceptor.</param>
     /// <returns>A tuple.</returns>
-    public static DisposableServer Start(Interceptor serverInterceptor = null)
+    public static DisposableServer Start(Interceptor? serverInterceptor = null)
     {
         // Disable SO_REUSEPORT to prevent https://github.com/grpc/grpc/issues/10755
         var serviceDefinition = Foobar.BindService(new FoobarService());
@@ -107,8 +89,8 @@ internal class FoobarService : Foobar.FoobarBase
     /// </returns>
     public static Foobar.FoobarClient ConstructRpcClient(
         string target,
-        ClientTracingInterceptor clientTracingInterceptor = null,
-        IEnumerable<Metadata.Entry> additionalMetadata = null)
+        ClientTracingInterceptor? clientTracingInterceptor = null,
+        IEnumerable<Metadata.Entry>? additionalMetadata = null)
     {
         var channel = new Channel(target, ChannelCredentials.Insecure);
         var callInvoker = channel.CreateCallInvoker();
@@ -142,7 +124,7 @@ internal class FoobarService : Foobar.FoobarBase
     /// <param name="client">The client.</param>
     /// <param name="additionalMetadata">The additional metadata.</param>
     /// <returns>A Task.</returns>
-    public static async Task MakeUnaryAsyncRequest(Foobar.FoobarClient client, Metadata additionalMetadata)
+    public static async Task MakeUnaryAsyncRequest(Foobar.FoobarClient client, Metadata? additionalMetadata)
     {
         using var call = client.UnaryAsync(DefaultRequestMessage, headers: additionalMetadata);
         _ = await call.ResponseAsync.ConfigureAwait(false);
@@ -154,7 +136,7 @@ internal class FoobarService : Foobar.FoobarBase
     /// <param name="client">The client.</param>
     /// <param name="additionalMetadata">The additional metadata.</param>
     /// <returns>A Task.</returns>
-    public static async Task MakeClientStreamingRequest(Foobar.FoobarClient client, Metadata additionalMetadata)
+    public static async Task MakeClientStreamingRequest(Foobar.FoobarClient client, Metadata? additionalMetadata)
     {
         using var call = client.ClientStreaming(headers: additionalMetadata);
         await call.RequestStream.WriteAsync(DefaultRequestMessage).ConfigureAwait(false);
@@ -168,7 +150,7 @@ internal class FoobarService : Foobar.FoobarBase
     /// <param name="client">The client.</param>
     /// <param name="additionalMetadata">The additional metadata.</param>
     /// <returns>A Task.</returns>
-    public static async Task MakeServerStreamingRequest(Foobar.FoobarClient client, Metadata additionalMetadata)
+    public static async Task MakeServerStreamingRequest(Foobar.FoobarClient client, Metadata? additionalMetadata)
     {
         using var call = client.ServerStreaming(DefaultRequestMessage, headers: additionalMetadata);
         while (await call.ResponseStream.MoveNext().ConfigureAwait(false))
@@ -182,7 +164,7 @@ internal class FoobarService : Foobar.FoobarBase
     /// <param name="client">The client.</param>
     /// <param name="additionalMetadata">The additional metadata.</param>
     /// <returns>A Task.</returns>
-    public static async Task MakeDuplexStreamingRequest(Foobar.FoobarClient client, Metadata additionalMetadata)
+    public static async Task MakeDuplexStreamingRequest(Foobar.FoobarClient client, Metadata? additionalMetadata)
     {
         using var call = client.DuplexStreaming(headers: additionalMetadata);
         await call.RequestStream.WriteAsync(DefaultRequestMessage).ConfigureAwait(false);
@@ -243,7 +225,12 @@ internal class FoobarService : Foobar.FoobarBase
         var failureDescription = context.RequestHeaders.GetValue(RequestHeaderErrorDescription);
         if (failureStatusCodeString != null)
         {
-            throw new RpcException(new Status((StatusCode)Enum.Parse(typeof(StatusCode), failureStatusCodeString), failureDescription ?? string.Empty));
+#if NET
+            var statusCode = Enum.Parse<StatusCode>(failureStatusCodeString);
+#else
+            var statusCode = (StatusCode)Enum.Parse(typeof(StatusCode), failureStatusCodeString);
+#endif
+            throw new RpcException(new Status(statusCode, failureDescription ?? string.Empty));
         }
     }
 
@@ -251,7 +238,7 @@ internal class FoobarService : Foobar.FoobarBase
     /// Wraps server shutdown with an IDisposable pattern.
     /// </summary>
     /// <seealso cref="IDisposable" />
-    public sealed class DisposableServer : IDisposable
+    internal sealed class DisposableServer : IDisposable
     {
         /// <summary>
         /// The server.

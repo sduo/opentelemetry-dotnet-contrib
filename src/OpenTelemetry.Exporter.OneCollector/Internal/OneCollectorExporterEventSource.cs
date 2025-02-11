@@ -1,22 +1,12 @@
-// <copyright file="OneCollectorExporterEventSource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
+#if NET
+using System.Diagnostics.CodeAnalysis;
+#endif
 using System.Diagnostics.Tracing;
-using System.Globalization;
 using System.Runtime.CompilerServices;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Exporter.OneCollector;
 
@@ -33,16 +23,7 @@ internal sealed class OneCollectorExporterEventSource : EventSource
     {
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
-            this.ExportExceptionThrown(itemType, ExceptionToInvariantString(exception));
-        }
-    }
-
-    [NonEvent]
-    public void WriteTransportDataSentEventIfEnabled(string itemType, int? numberOfRecords, string transportDescription)
-    {
-        if (this.IsInformationalLoggingEnabled())
-        {
-            this.TransportDataSent(itemType, numberOfRecords ?? -1, transportDescription);
+            this.ExportExceptionThrown(itemType, exception.ToInvariantString());
         }
     }
 
@@ -60,7 +41,7 @@ internal sealed class OneCollectorExporterEventSource : EventSource
     {
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
-            this.TransportExceptionThrown(transportType, ExceptionToInvariantString(exception));
+            this.TransportExceptionThrown(transportType, exception.ToInvariantString());
         }
     }
 
@@ -78,7 +59,7 @@ internal sealed class OneCollectorExporterEventSource : EventSource
     {
         if (this.IsEnabled(EventLevel.Error, EventKeywords.All))
         {
-            this.ExceptionThrownFromUserCode(userCodeType, ExceptionToInvariantString(exception));
+            this.ExceptionThrownFromUserCode(userCodeType, exception.ToInvariantString());
         }
     }
 
@@ -89,21 +70,30 @@ internal sealed class OneCollectorExporterEventSource : EventSource
     }
 
     [Event(2, Message = "Sent '{0}' batch of {1} item(s) to '{2}' transport.", Level = EventLevel.Informational)]
+#if NET
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Parameters passed to WriteEvent are all primitive values.")]
+#endif
     public void TransportDataSent(string itemType, int numberOfRecords, string transportDescription)
     {
         this.WriteEvent(2, itemType, numberOfRecords, transportDescription);
     }
 
     [Event(3, Message = "Wrote '{0}' batch of {1} item(s) to '{2}' sink.", Level = EventLevel.Informational)]
+#if NET
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Parameters passed to WriteEvent are all primitive values.")]
+#endif
     public void SinkDataWritten(string itemType, int numberOfRecords, string sinkDescription)
     {
         this.WriteEvent(3, itemType, numberOfRecords, sinkDescription);
     }
 
-    [Event(4, Message = "Dropped {1} '{0}' item(s).", Level = EventLevel.Warning)]
-    public void DataDropped(string itemType, int numberOfRecords)
+    [Event(4, Message = "Dropped {1} '{0}' item(s). {2} item(s) dropped during serialization. {3} item(s) dropped due to transmission failure.", Level = EventLevel.Warning)]
+#if NET
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Parameters passed to WriteEvent are all primitive values.")]
+#endif
+    public void DataDropped(string itemType, int numberOfRecords, int numberOfRecordsDroppedDuringSerialization, int numberOfRecordsDroppedDuringTransmission)
     {
-        this.WriteEvent(4, itemType, numberOfRecords);
+        this.WriteEvent(4, itemType, numberOfRecords, numberOfRecordsDroppedDuringSerialization, numberOfRecordsDroppedDuringTransmission);
     }
 
     [Event(5, Message = "Exception thrown by '{0}' transport: {1}", Level = EventLevel.Error)]
@@ -113,6 +103,9 @@ internal sealed class OneCollectorExporterEventSource : EventSource
     }
 
     [Event(6, Message = "Error response received by '{0}' transport. StatusCode: {1}, ErrorMessage: '{2}', ErrorDetails: '{3}'", Level = EventLevel.Error)]
+#if NET
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Parameters passed to WriteEvent are all primitive values.")]
+#endif
     public void HttpTransportErrorResponseReceived(string transportType, int statusCode, string errorMessage, string errorDetails)
     {
         this.WriteEvent(6, transportType, statusCode, errorMessage, errorDetails);
@@ -142,22 +135,9 @@ internal sealed class OneCollectorExporterEventSource : EventSource
         this.WriteEvent(10, userCodeType, exception);
     }
 
-    /// <summary>
-    /// Returns a culture-independent string representation of the given <paramref name="exception"/> object,
-    /// appropriate for diagnostics tracing.
-    /// </summary>
-    private static string ExceptionToInvariantString(Exception exception)
+    [Event(11, Message = "Dropped {0} attribute '{1}': {2}", Level = EventLevel.Warning)]
+    public void AttributeDropped(string itemType, string name, string reason)
     {
-        var originalUICulture = Thread.CurrentThread.CurrentUICulture;
-
-        try
-        {
-            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-            return exception.ToString();
-        }
-        finally
-        {
-            Thread.CurrentThread.CurrentUICulture = originalUICulture;
-        }
+        this.WriteEvent(11, itemType, name, reason);
     }
 }

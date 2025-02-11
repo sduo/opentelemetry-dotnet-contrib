@@ -1,43 +1,33 @@
-// <copyright file="GenevaLogExporter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Runtime.InteropServices;
-using OpenTelemetry.Exporter.Geneva.TldExporter;
+using OpenTelemetry.Exporter.Geneva.MsgPack;
+using OpenTelemetry.Exporter.Geneva.Tld;
 using OpenTelemetry.Internal;
 using OpenTelemetry.Logs;
 
 namespace OpenTelemetry.Exporter.Geneva;
 
+/// <summary>
+/// An exporter for Geneva logs.
+/// </summary>
 public class GenevaLogExporter : GenevaBaseExporter<LogRecord>
 {
     internal bool IsUsingUnixDomainSocket;
 
-    private bool isDisposed;
-
-    private delegate ExportResult ExportLogRecordFunc(in Batch<LogRecord> batch);
-
     private readonly ExportLogRecordFunc exportLogRecord;
-
     private readonly IDisposable exporter;
 
+    private bool isDisposed;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GenevaLogExporter"/> class.
+    /// </summary>
+    /// <param name="options"><see cref="GenevaExporterOptions"/>.</param>
     public GenevaLogExporter(GenevaExporterOptions options)
     {
         Guard.ThrowIfNull(options);
-        Guard.ThrowIfNullOrWhitespace(options.ConnectionString);
 
         bool useMsgPackExporter;
         var connectionStringBuilder = new ConnectionStringBuilder(options.ConnectionString);
@@ -69,32 +59,38 @@ public class GenevaLogExporter : GenevaBaseExporter<LogRecord>
 
                 useMsgPackExporter = false;
                 break;
-
+            case TransportProtocol.Tcp:
+            case TransportProtocol.Udp:
+            case TransportProtocol.Unspecified:
             default:
-                throw new ArgumentOutOfRangeException(nameof(connectionStringBuilder.Protocol));
+                throw new NotSupportedException($"Protocol '{connectionStringBuilder.Protocol}' is not supported");
         }
 
         if (useMsgPackExporter)
         {
             var msgPackLogExporter = new MsgPackLogExporter(options);
             this.IsUsingUnixDomainSocket = msgPackLogExporter.IsUsingUnixDomainSocket;
-            this.exportLogRecord = (in Batch<LogRecord> batch) => msgPackLogExporter.Export(in batch);
+            this.exportLogRecord = msgPackLogExporter.Export;
             this.exporter = msgPackLogExporter;
         }
         else
         {
             var tldLogExporter = new TldLogExporter(options);
             this.IsUsingUnixDomainSocket = false;
-            this.exportLogRecord = (in Batch<LogRecord> batch) => tldLogExporter.Export(in batch);
+            this.exportLogRecord = tldLogExporter.Export;
             this.exporter = tldLogExporter;
         }
     }
 
+    private delegate ExportResult ExportLogRecordFunc(in Batch<LogRecord> batch);
+
+    /// <inheritdoc/>
     public override ExportResult Export(in Batch<LogRecord> batch)
     {
         return this.exportLogRecord(in batch);
     }
 
+    /// <inheritdoc/>
     protected override void Dispose(bool disposing)
     {
         if (this.isDisposed)

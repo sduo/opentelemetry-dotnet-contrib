@@ -1,23 +1,7 @@
-// <copyright file="ClientTracingInterceptor.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using OpenTelemetry.Context.Propagation;
@@ -56,7 +40,7 @@ public class ClientTracingInterceptor : Interceptor
         Guard.ThrowIfNull(context);
         Guard.ThrowIfNull(continuation);
 
-        ClientRpcScope<TRequest, TResponse> rpcScope = null;
+        ClientRpcScope<TRequest, TResponse>? rpcScope = null;
 
         try
         {
@@ -88,7 +72,7 @@ public class ClientTracingInterceptor : Interceptor
         Guard.ThrowIfNull(context);
         Guard.ThrowIfNull(continuation);
 
-        ClientRpcScope<TRequest, TResponse> rpcScope = null;
+        ClientRpcScope<TRequest, TResponse>? rpcScope = null;
 
         try
         {
@@ -109,8 +93,14 @@ public class ClientTracingInterceptor : Interceptor
                     }
                     catch (AggregateException ex)
                     {
-                        rpcScope.CompleteWithException(ex.InnerException);
-                        throw ex.InnerException;
+                        if (ex.InnerException != null)
+                        {
+                            rpcScope.CompleteWithException(ex.InnerException);
+                            throw ex.InnerException;
+                        }
+
+                        rpcScope.CompleteWithException(ex);
+                        throw;
                     }
                 },
                 TaskScheduler.Current);
@@ -141,7 +131,7 @@ public class ClientTracingInterceptor : Interceptor
         Guard.ThrowIfNull(context);
         Guard.ThrowIfNull(continuation);
 
-        ClientRpcScope<TRequest, TResponse> rpcScope = null;
+        ClientRpcScope<TRequest, TResponse>? rpcScope = null;
 
         try
         {
@@ -166,8 +156,14 @@ public class ClientTracingInterceptor : Interceptor
                     }
                     catch (AggregateException ex)
                     {
-                        rpcScope.CompleteWithException(ex.InnerException);
-                        throw ex.InnerException;
+                        if (ex.InnerException != null)
+                        {
+                            rpcScope.CompleteWithException(ex.InnerException);
+                            throw ex.InnerException;
+                        }
+
+                        rpcScope.CompleteWithException(ex);
+                        throw;
                     }
                 },
                 TaskScheduler.Current);
@@ -200,7 +196,7 @@ public class ClientTracingInterceptor : Interceptor
         Guard.ThrowIfNull(context);
         Guard.ThrowIfNull(continuation);
 
-        ClientRpcScope<TRequest, TResponse> rpcScope = null;
+        ClientRpcScope<TRequest, TResponse>? rpcScope = null;
 
         try
         {
@@ -242,7 +238,7 @@ public class ClientTracingInterceptor : Interceptor
         Guard.ThrowIfNull(context);
         Guard.ThrowIfNull(continuation);
 
-        ClientRpcScope<TRequest, TResponse> rpcScope = null;
+        ClientRpcScope<TRequest, TResponse>? rpcScope = null;
 
         try
         {
@@ -293,7 +289,7 @@ public class ClientTracingInterceptor : Interceptor
         /// <summary>
         /// The metadata setter action.
         /// </summary>
-        private static readonly Action<Metadata, string, string> MetadataSetter = (metadata, key, value) => { metadata.Add(new Metadata.Entry(key, value)); };
+        private static readonly Action<Metadata?, string, string> MetadataSetter = (metadata, key, value) => { metadata?.Add(new Metadata.Entry(key, value)); };
 
         /// <summary>
         /// The context.
@@ -303,7 +299,7 @@ public class ClientTracingInterceptor : Interceptor
         /// <summary>
         /// The parent activity.
         /// </summary>
-        private readonly Activity parentActivity;
+        private readonly Activity? parentActivity;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ClientRpcScope{TRequest, TResponse}" /> class.
@@ -311,7 +307,7 @@ public class ClientTracingInterceptor : Interceptor
         /// <param name="context">The context.</param>
         /// <param name="options">The options.</param>
         public ClientRpcScope(ClientInterceptorContext<TRequest, TResponse> context, ClientTracingInterceptorOptions options)
-            : base(context.Method?.FullName, options.RecordMessageEvents)
+            : base(context.Method?.FullName, options.RecordMessageEvents, options.RecordException)
         {
             this.context = context;
 
@@ -324,16 +320,6 @@ public class ClientTracingInterceptor : Interceptor
                 return;
             }
 
-            // This if block is for unit testing only.
-            IEnumerable<KeyValuePair<string, object>> customTags = null;
-            if (options.ActivityIdentifierValue != default)
-            {
-                customTags = new List<KeyValuePair<string, object>>
-                {
-                    new KeyValuePair<string, object>(SemanticConventions.AttributeActivityIdentifier, options.ActivityIdentifierValue),
-                };
-            }
-
             // We want to start an activity but don't activate it.
             // After calling StartActivity, Activity.Current will be the new Activity.
             // This scope is created synchronously before the RPC invocation starts and so this new Activity will overwrite
@@ -344,7 +330,7 @@ public class ClientTracingInterceptor : Interceptor
                 this.FullServiceName,
                 ActivityKind.Client,
                 this.parentActivity == default ? default : this.parentActivity.Context,
-                tags: customTags);
+                tags: options.AdditionalTags);
 
             if (rpcActivity == null)
             {
@@ -369,7 +355,7 @@ public class ClientTracingInterceptor : Interceptor
 
             this.SetActivity(rpcActivity);
             options.Propagator.Inject(new PropagationContext(rpcActivity.Context, Baggage.Current), callOptions.Headers, MetadataSetter);
-            this.context = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
+            this.context = new ClientInterceptorContext<TRequest, TResponse>(context.Method!, context.Host, callOptions);
         }
 
         /// <summary>

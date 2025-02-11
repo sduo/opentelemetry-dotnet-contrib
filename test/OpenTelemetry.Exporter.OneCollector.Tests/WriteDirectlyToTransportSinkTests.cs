@@ -1,21 +1,7 @@
-// <copyright file="WriteDirectlyToTransportSinkTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Text;
-using System.Text.Json;
 using OpenTelemetry.Resources;
 using Xunit;
 
@@ -74,15 +60,19 @@ public class WriteDirectlyToTransportSinkTests
 
         var numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
 
-        Assert.Equal(2, numberOfRecordsWritten);
+        Assert.Equal(0, sink.Buffer.Length);
+        Assert.Equal(3, numberOfRecordsWritten);
+        Assert.Equal(2, transport.ExportedData.Count);
 
         var data = transport.ExportedData[0];
 
         Assert.NotNull(data);
-
         Assert.Equal("\"item1\"\n\"item2\"\n", Encoding.ASCII.GetString(data));
 
-        Assert.Equal(0, sink.Buffer.Length);
+        data = transport.ExportedData[1];
+
+        Assert.NotNull(data);
+        Assert.Equal("\"item3\"\n", Encoding.ASCII.GetString(data));
     }
 
     [Fact]
@@ -92,7 +82,7 @@ public class WriteDirectlyToTransportSinkTests
 
         var transport = new TestTransport();
 
-        var sink = new WriteDirectlyToTransportSink<string>(
+        using var sink = new WriteDirectlyToTransportSink<string>(
             new TestSerializer(maxPayloadSizeInBytes: expectedPayloadSizeInBytes + 1),
             transport);
 
@@ -105,7 +95,9 @@ public class WriteDirectlyToTransportSinkTests
 
         var numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
 
+        Assert.Equal(0, sink.Buffer.Length);
         Assert.Equal(3, numberOfRecordsWritten);
+        Assert.Equal(2, transport.ExportedData.Count);
 
         var data = transport.ExportedData[0];
 
@@ -113,34 +105,87 @@ public class WriteDirectlyToTransportSinkTests
         Assert.Equal(expectedPayloadSizeInBytes, data.Length);
         Assert.Equal("\"item1\"\n\"item2\"\n", Encoding.ASCII.GetString(data));
 
-        Assert.NotEqual(0, sink.Buffer.Length);
-
-        items = new string[]
-        {
-            "item4",
-            "item5",
-        };
-
-        numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
-
-        Assert.Equal(2, numberOfRecordsWritten);
-
         data = transport.ExportedData[1];
 
         Assert.NotNull(data);
-        Assert.Equal(expectedPayloadSizeInBytes, data.Length);
-        Assert.Equal("\"item3\"\n\"item4\"\n", Encoding.ASCII.GetString(data));
+        Assert.NotEqual(expectedPayloadSizeInBytes, data.Length);
+        Assert.Equal("\"item3\"\n", Encoding.ASCII.GetString(data));
 
-        Assert.NotEqual(0, sink.Buffer.Length);
+        transport.ExportedData.Clear();
 
-        sink.Dispose();
+        items =
+        [
+            "item4",
+            "item5"
+        ];
+
+        numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
 
         Assert.Equal(0, sink.Buffer.Length);
+        Assert.Equal(2, numberOfRecordsWritten);
+        Assert.Single(transport.ExportedData);
 
-        data = transport.ExportedData[2];
+        data = transport.ExportedData[0];
 
         Assert.NotNull(data);
-        Assert.Equal("\"item5\"\n", Encoding.ASCII.GetString(data));
+        Assert.Equal(expectedPayloadSizeInBytes, data.Length);
+        Assert.Equal("\"item4\"\n\"item5\"\n", Encoding.ASCII.GetString(data));
+    }
+
+    [Fact]
+    public void SingleItem_MaxPayloadSize_Test()
+    {
+        var maxPayloadSizeInBytes = 100;
+
+        var transport = new TestTransport();
+
+        using var sink = new WriteDirectlyToTransportSink<string>(
+            new TestSerializer(maxPayloadSizeInBytes),
+            transport);
+
+        var items = new string[]
+        {
+            new('a', maxPayloadSizeInBytes - 3), // 3 characters added for "s and \n in JSON
+        };
+
+        var numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
+
+        Assert.Equal(0, sink.Buffer.Length);
+        Assert.Equal(0, numberOfRecordsWritten);
+        Assert.Empty(transport.ExportedData);
+    }
+
+    [Fact]
+    public void MultipleItems_MaxPayloadSize_Test()
+    {
+        var expectedPayloadSizeInBytes = "\"item1\"\n\"item2\"\n".Length;
+
+        var maxPayloadSizeInBytes = 100;
+
+        var transport = new TestTransport();
+
+        using var sink = new WriteDirectlyToTransportSink<string>(
+            new TestSerializer(maxPayloadSizeInBytes),
+            transport);
+
+        var items = new string[]
+        {
+            "item1",
+            new('a', maxPayloadSizeInBytes - 3), // 3 characters added for "s and \n in JSON
+            "item3",
+        };
+
+        var numberOfRecordsWritten = sink.Write(Resource.Empty, new(items, items.Length));
+
+        Assert.Equal(0, sink.Buffer.Length);
+        Assert.Equal(2, numberOfRecordsWritten);
+        Assert.Single(transport.ExportedData);
+
+        var data = transport.ExportedData[0];
+
+        Assert.NotNull(data);
+        Assert.Equal(expectedPayloadSizeInBytes, data.Length);
+        Assert.Equal("\"item1\"\n\"item3\"\n", Encoding.ASCII.GetString(data));
     }
 
     private sealed class TestSerializer : CommonSchemaJsonSerializer<string>
@@ -154,9 +199,9 @@ public class WriteDirectlyToTransportSinkTests
 
         public override string Description => nameof(TestSerializer);
 
-        protected override void SerializeItemToJson(Resource resource, string item, Utf8JsonWriter writer)
+        protected override void SerializeItemToJson(Resource resource, string item, CommonSchemaJsonSerializationState serializationState)
         {
-            writer.WriteStringValue(item);
+            serializationState.Writer.WriteStringValue(item);
         }
     }
 
@@ -164,9 +209,9 @@ public class WriteDirectlyToTransportSinkTests
     {
         public string Description => nameof(TestTransport);
 
-        public List<byte[]> ExportedData { get; } = new();
+        public List<byte[]> ExportedData { get; } = [];
 
-        public IDisposable RegisterPayloadTransmittedCallback(OneCollectorExporterPayloadTransmittedCallbackAction callback)
+        public IDisposable RegisterPayloadTransmittedCallback(OneCollectorExporterPayloadTransmittedCallbackAction callback, bool includeFailures)
         {
             throw new NotImplementedException();
         }

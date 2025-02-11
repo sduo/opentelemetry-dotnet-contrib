@@ -1,10 +1,24 @@
 # WCF Instrumentation for OpenTelemetry .NET
 
-[![nuget](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Wcf.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Wcf/)
-[![nuget](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Wcf.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Wcf/)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [RC](../../README.md#rc)|
+| Code Owners   |  [@codeblanch](https://github.com/codeblanch)|
 
-Instruments WCF clients and/or services using implementations of
-`IClientMessageInspector` and `IDispatchMessageInspector` respectively.
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Wcf)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Wcf/)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Wcf)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Wcf/)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.Wcf)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.Wcf)
+
+Instruments WCF clients and/or services.
+
+The following configurations are verified to work with this instrumentation.
+Other configurations may work as well but have not been tested.
+
+* SOAP and JSON payloads on HTTP/HTTPS transport
+* SOAP payloads on Net.TCP transport
+  * Encrypted and unencrypted transports
+  * Streamed and buffered transfer modes
+  * Signed and unsigned messages
 
 ## Installation
 
@@ -50,8 +64,8 @@ using var openTelemetry = Sdk.CreateTracerProviderBuilder()
 
 ## WCF Client Configuration (.NET Framework)
 
-Add the `IClientMessageInspector` instrumentation via a behavior extension on
-the clients you want to instrument:
+Configure the `TelemetryEndpointBehaviorExtensionElement` on the clients
+you want to instrument:
 
 ```xml
 <?xml version="1.0" encoding="utf-8" ?>
@@ -89,8 +103,7 @@ folder.
 
 ## WCF Client Configuration (.NET Core)
 
-Add the `IClientMessageInspector` instrumentation as an endpoint behavior on the
-clients you want to instrument:
+Add the `TelemetryEndpointBehavior` extension to the clients you want to instrument:
 
 ```csharp
 StatusServiceClient client = new StatusServiceClient(binding, remoteAddress);
@@ -194,10 +207,9 @@ instrument:
 
 ## WCF Programmatic Configuration Server and/or Client (.NET Framework + .NET Core)
 
-To add `IDispatchMessageInspector` for servers (.NET Framework only) and/or
-`IClientMessageInspector` for clients (.NET Framework & .NET Core)
-programmatically, use the `TelemetryContractBehaviorAttribute` on the service
-contracts you want to instrument:
+To programmatically add instrumentation for servers (.NET Framework only) and/or
+for clients (.NET Framework & .NET Core), use the `TelemetryContractBehaviorAttribute`
+on the service contracts you want to instrument:
 
 ```csharp
     [ServiceContract(
@@ -212,28 +224,17 @@ contracts you want to instrument:
     }
 ```
 
-## Known issues
+## Advanced configuration
 
-WCF library does not provide any extension points to handle exception thrown on
-communication (e.g. EndpointNotFoundException). Because of that in case of such
-an event the `Activity` will not be stopped correctly. This can be handled in
-an application code by catching the exception and stopping the `Activity` manually.
+This instrumentation can be configured to change the default behavior by using
+`WcfInstrumentationOptions`.
 
-```csharp
-    StatusResponse? response = null;
-    try
-    {
-        response = await client.PingAsync(statusRequest).ConfigureAwait(false);
-    }
-    catch (Exception)
-    {
-        var activity = Activity.Current;
-        if (activity != null && activity.Source.Name.Contains("OpenTelemetry.Instrumentation.Wcf"))
-        {
-            activity.Stop();
-        }
-    }
-```
+### RecordException
+
+This instrumentation automatically sets Activity Status to Error if an unhandled
+exception is thrown. Additionally, `RecordException` feature may be turned on,
+to store the exception to the Activity itself as ActivityEvent. `RecordException`
+is available only on the client side.
 
 ## References
 

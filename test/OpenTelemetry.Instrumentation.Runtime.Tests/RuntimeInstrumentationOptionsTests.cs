@@ -1,22 +1,9 @@
-// <copyright file="RuntimeInstrumentationOptionsTests.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
 namespace OpenTelemetry.Instrumentation.Runtime.Tests;
 
-public class RuntimeInstrumentationOptionsTests
+internal class RuntimeInstrumentationOptionsTests
 {
     /*
             [Fact]
@@ -25,10 +12,8 @@ public class RuntimeInstrumentationOptionsTests
                 var options = new RuntimeInstrumentationOptions();
 
                 Assert.True(options.IsGcEnabled);
-    #if NET6_0_OR_GREATER
+    #if NET
                 Assert.True(options.IsJitEnabled);
-    #endif
-    #if NETCOREAPP3_1_OR_GREATER
                 Assert.True(options.IsThreadingEnabled);
     #endif
                 Assert.True(options.IsAssembliesEnabled);
@@ -41,17 +26,15 @@ public class RuntimeInstrumentationOptionsTests
                 var options = new RuntimeInstrumentationOptions { GcEnabled = true };
 
                 Assert.True(options.IsGcEnabled);
-    #if NET6_0_OR_GREATER
+    #if NET
                 Assert.False(options.IsJitEnabled);
-    #endif
-    #if NETCOREAPP3_1_OR_GREATER
                 Assert.False(options.IsThreadingEnabled);
     #endif
                 Assert.False(options.IsAssembliesEnabled);
                 Assert.False(options.IsAllEnabled);
             }
 
-    #if NET6_0_OR_GREATER
+    #if NET
             [Fact]
             public void Enable_Jit_Only()
             {
@@ -65,16 +48,14 @@ public class RuntimeInstrumentationOptionsTests
             }
     #endif
 
-    #if NETCOREAPP3_1_OR_GREATER
+    #if NET
             [Fact]
             public void Enable_Threading_Only()
             {
                 var options = new RuntimeInstrumentationOptions { ThreadingEnabled = true };
 
                 Assert.False(options.IsGcEnabled);
-    #if NET6_0_OR_GREATER
                 Assert.False(options.IsJitEnabled);
-    #endif
                 Assert.True(options.IsThreadingEnabled);
                 Assert.False(options.IsAssembliesEnabled);
                 Assert.False(options.IsAllEnabled);
@@ -87,10 +68,8 @@ public class RuntimeInstrumentationOptionsTests
                 var options = new RuntimeInstrumentationOptions { AssembliesEnabled = true };
 
                 Assert.False(options.IsGcEnabled);
-    #if NET6_0_OR_GREATER
+    #if NET
                 Assert.False(options.IsJitEnabled);
-    #endif
-    #if NETCOREAPP3_1_OR_GREATER
                 Assert.False(options.IsThreadingEnabled);
     #endif
                 Assert.True(options.IsAssembliesEnabled);
@@ -103,10 +82,8 @@ public class RuntimeInstrumentationOptionsTests
                 var options = new RuntimeInstrumentationOptions { GcEnabled = true, AssembliesEnabled = true };
 
                 Assert.True(options.IsGcEnabled);
-    #if NET6_0_OR_GREATER
+    #if NET
                 Assert.False(options.IsJitEnabled);
-    #endif
-    #if NETCOREAPP3_1_OR_GREATER
                 Assert.False(options.IsThreadingEnabled);
     #endif
                 Assert.True(options.IsAssembliesEnabled);

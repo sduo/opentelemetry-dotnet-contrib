@@ -1,22 +1,6 @@
-// <copyright file="AsyncStreamReaderProxy.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Grpc.Core;
 
 namespace OpenTelemetry.Instrumentation.GrpcCore;
@@ -40,17 +24,17 @@ internal class AsyncStreamReaderProxy<T> : IAsyncStreamReader<T>
     /// <summary>
     /// The on message action.
     /// </summary>
-    private readonly Action<T> onMessage;
+    private readonly Action<T>? onMessage;
 
     /// <summary>
     /// The on stream end action.
     /// </summary>
-    private readonly Action onStreamEnd;
+    private readonly Action? onStreamEnd;
 
     /// <summary>
     /// The on exception action.
     /// </summary>
-    private readonly Action<Exception> onException;
+    private readonly Action<Exception>? onException;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncStreamReaderProxy{T}"/> class.
@@ -59,7 +43,7 @@ internal class AsyncStreamReaderProxy<T> : IAsyncStreamReader<T>
     /// <param name="onMessage">The on message action, if any.</param>
     /// <param name="onStreamEnd">The on stream end action, if any.</param>
     /// <param name="onException">The on exception action, if any.</param>
-    public AsyncStreamReaderProxy(IAsyncStreamReader<T> reader, Action<T> onMessage = null, Action onStreamEnd = null, Action<Exception> onException = null)
+    public AsyncStreamReaderProxy(IAsyncStreamReader<T> reader, Action<T>? onMessage = null, Action? onStreamEnd = null, Action<Exception>? onException = null)
     {
         this.reader = reader;
         this.onMessage = onMessage;

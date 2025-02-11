@@ -1,25 +1,19 @@
-name: markdownlint
+name: Lint - Markdown
 
 on:
-  push:
-    branches: [ 'main*', 'instrumentation*', 'exporter*', 'extensions*' ]
-    paths:
-    - '**.md'
-  pull_request:
-    branches: [ 'main*', 'instrumentation*', 'exporter*', 'extensions*' ]
-    paths:
-    - '**.md'
+  workflow_call:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  run-markdownlint:
+    runs-on: ubuntu-22.04
 
     steps:
     - name: check out code
-      uses: actions/checkout@v3.1.0
-
-    - name: install markdownlint-cli
-      run: sudo npm install -g markdownlint-cli
+      uses: actions/checkout@v4
 
     - name: run markdownlint
-      run: markdownlint .
+      uses: DavidAnson/markdownlint-cli2-action@v19.1.0
+      with:
+        globs: |
+          **/*.md
+          !.github/**/*.md

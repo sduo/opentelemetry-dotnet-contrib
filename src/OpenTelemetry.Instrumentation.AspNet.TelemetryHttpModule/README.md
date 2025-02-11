@@ -1,7 +1,13 @@
 # ASP.NET Telemetry HttpModule for OpenTelemetry
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule/)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule/)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Beta](../../README.md#beta)|
+| Code Owners   |  [@open-telemetry/dotnet-contrib-maintainers](https://github.com/orgs/open-telemetry/teams/dotnet-contrib-maintainers)|
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule/)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.AspNet.TelemetryHttpModule/)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.AspNet)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.AspNet)
 
 The ASP.NET Telemetry HttpModule enables distributed tracing of incoming ASP.NET
 requests using the OpenTelemetry API.
@@ -120,7 +126,7 @@ TelemetryHttpModuleOptions.TextMapPropagator = new CompositeTextMapPropagator(
     });
 ```
 
-> **Note**
+> [!NOTE]
 > When using the `OpenTelemetry.Instrumentation.AspNet`
 `TelemetryHttpModuleOptions.TextMapPropagator` is automatically initialized to
 the SDK default propagator (`Propagators.DefaultTextMapPropagator`) which by

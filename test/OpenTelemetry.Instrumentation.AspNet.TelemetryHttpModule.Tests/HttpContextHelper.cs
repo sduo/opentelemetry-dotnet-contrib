@@ -1,23 +1,7 @@
-// <copyright file="HttpContextHelper.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Threading;
 using System.Web;
 using System.Web.Hosting;
 
@@ -25,7 +9,7 @@ namespace OpenTelemetry.Instrumentation.AspNet.Tests;
 
 internal class HttpContextHelper
 {
-    public static HttpContext GetFakeHttpContext(string page = "/page", string query = "", IDictionary<string, string> headers = null)
+    public static HttpContext GetFakeHttpContext(string page = "/page", string query = "", IDictionary<string, string>? headers = null)
     {
         Thread.GetDomain().SetData(".appPath", string.Empty);
         Thread.GetDomain().SetData(".appVPath", string.Empty);
@@ -36,7 +20,7 @@ internal class HttpContextHelper
         return context;
     }
 
-    public static HttpContextBase GetFakeHttpContextBase(string page = "/page", string query = "", IDictionary<string, string> headers = null)
+    public static HttpContextBase GetFakeHttpContextBase(string page = "/page", string query = "", IDictionary<string, string>? headers = null)
     {
         var context = GetFakeHttpContext(page, query, headers);
         return new HttpContextWrapper(context);
@@ -46,26 +30,19 @@ internal class HttpContextHelper
     {
         private readonly IDictionary<string, string> headers;
 
-        public SimpleWorkerRequestWithHeaders(string page, string query, TextWriter output, IDictionary<string, string> headers)
+        public SimpleWorkerRequestWithHeaders(string page, string query, TextWriter output, IDictionary<string, string>? headers)
             : base(page, query, output)
         {
-            if (headers != null)
-            {
-                this.headers = headers;
-            }
-            else
-            {
-                this.headers = new Dictionary<string, string>();
-            }
+            this.headers = headers ?? new Dictionary<string, string>();
         }
 
         public override string[][] GetUnknownRequestHeaders()
         {
-            List<string[]> result = new List<string[]>();
+            List<string[]> result = [];
 
             foreach (var header in this.headers)
             {
-                result.Add(new string[] { header.Key, header.Value });
+                result.Add([header.Key, header.Value]);
             }
 
             var baseResult = base.GetUnknownRequestHeaders();
@@ -74,29 +51,19 @@ internal class HttpContextHelper
                 result.AddRange(baseResult);
             }
 
-            return result.ToArray();
+            return [.. result];
         }
 
         public override string GetUnknownRequestHeader(string name)
         {
-            if (this.headers.TryGetValue(name, out var value))
-            {
-                return value;
-            }
-
-            return base.GetUnknownRequestHeader(name);
+            return this.headers.TryGetValue(name, out var value) ? value : base.GetUnknownRequestHeader(name);
         }
 
         public override string GetKnownRequestHeader(int index)
         {
             var name = GetKnownRequestHeaderName(index);
 
-            if (this.headers.TryGetValue(name, out var value))
-            {
-                return value;
-            }
-
-            return base.GetKnownRequestHeader(index);
+            return this.headers.TryGetValue(name, out var value) ? value : base.GetKnownRequestHeader(index);
         }
     }
 }

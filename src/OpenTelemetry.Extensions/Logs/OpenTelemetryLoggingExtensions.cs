@@ -1,21 +1,9 @@
-// <copyright file="OpenTelemetryLoggingExtensions.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics;
+using OpenTelemetry;
+using OpenTelemetry.Extensions.Internal;
 using OpenTelemetry.Internal;
 using OpenTelemetry.Logs;
 
@@ -47,5 +35,103 @@ public static class OpenTelemetryLoggingExtensions
 #pragma warning disable CA2000 // Dispose objects before losing scope
         return loggerOptions.AddProcessor(new ActivityEventAttachingLogProcessor(options));
 #pragma warning restore CA2000 // Dispose objects before losing scope
+    }
+
+    /// <summary>
+    /// Adds a <see cref="LogRecord"/> processor to the OpenTelemetry <see
+    /// cref="OpenTelemetryLoggerOptions"/> which will copy all
+    /// baggage entries as log record attributes.
+    /// </summary>
+    /// <param name="loggerOptions"><see cref="OpenTelemetryLoggerOptions"/> to add the <see cref="LogRecord"/> processor to.</param>
+    /// <returns>The instance of <see cref="OpenTelemetryLoggerOptions"/> to chain the calls.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="loggerOptions"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Copies all current baggage entries to log record attributes.
+    /// </remarks>
+    public static OpenTelemetryLoggerOptions AddBaggageProcessor(
+        this OpenTelemetryLoggerOptions loggerOptions)
+    {
+        return loggerOptions.AddBaggageProcessor(BaggageLogRecordProcessor.AllowAllBaggageKeys);
+    }
+
+    /// <summary>
+    /// Adds a <see cref="LogRecord"/> processor to the OpenTelemetry <see
+    /// cref="OpenTelemetryLoggerOptions"/> which will conditionally copy
+    /// baggage entries as log record attributes.
+    /// </summary>
+    /// <param name="loggerOptions"><see cref="OpenTelemetryLoggerOptions"/> to add the <see cref="LogRecord"/> processor to.</param>
+    /// <param name="baggageKeyPredicate">Predicate to determine which baggage keys should be added to the log record.</param>
+    /// <returns>The instance of <see cref="OpenTelemetryLoggerOptions"/> to chain the calls.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="loggerOptions"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="baggageKeyPredicate"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Conditionally copies current baggage entries to log record attributes.
+    /// In case of an exception the predicate is treated as false, and the baggage entry will not be copied.
+    /// </remarks>
+    public static OpenTelemetryLoggerOptions AddBaggageProcessor(
+        this OpenTelemetryLoggerOptions loggerOptions,
+        Predicate<string> baggageKeyPredicate)
+    {
+        Guard.ThrowIfNull(loggerOptions);
+        Guard.ThrowIfNull(baggageKeyPredicate);
+
+        return loggerOptions.AddProcessor(_ => SetupBaggageLogRecordProcessor(baggageKeyPredicate));
+    }
+
+    /// <summary>
+    /// Adds a <see cref="LogRecord"/> processor to the OpenTelemetry <see
+    /// cref="LoggerProviderBuilder"/> which will copy all
+    /// baggage entries as log record attributes.
+    /// </summary>
+    /// <param name="builder"><see cref="LoggerProviderBuilder"/> to add the <see cref="LogRecord"/> processor to.</param>
+    /// <returns>The instance of <see cref="LoggerProviderBuilder"/> to chain the calls.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Copies all current baggage entries to log record attributes.
+    /// </remarks>
+    public static LoggerProviderBuilder AddBaggageProcessor(
+        this LoggerProviderBuilder builder)
+    {
+        return builder.AddBaggageProcessor(BaggageLogRecordProcessor.AllowAllBaggageKeys);
+    }
+
+    /// <summary>
+    /// Adds a <see cref="LogRecord"/> processor to the OpenTelemetry <see
+    /// cref="LoggerProviderBuilder"/> which will copy all
+    /// baggage entries as log record attributes.
+    /// </summary>
+    /// <param name="builder"><see cref="LoggerProviderBuilder"/> to add the <see cref="LogRecord"/> processor to.</param>
+    /// <param name="baggageKeyPredicate">Predicate to determine which baggage keys should be added to the log record.</param>
+    /// <returns>The instance of <see cref="LoggerProviderBuilder"/> to chain the calls.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="builder"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="baggageKeyPredicate"/> is <c>null</c>.</exception>
+    /// <remarks>
+    /// Conditionally copies current baggage entries to log record attributes.
+    /// In case of an exception the predicate is treated as false, and the baggage entry will not be copied.
+    /// </remarks>
+    public static LoggerProviderBuilder AddBaggageProcessor(
+        this LoggerProviderBuilder builder,
+        Predicate<string> baggageKeyPredicate)
+    {
+        Guard.ThrowIfNull(builder);
+        Guard.ThrowIfNull(baggageKeyPredicate);
+
+        return builder.AddProcessor(_ => SetupBaggageLogRecordProcessor(baggageKeyPredicate));
+    }
+
+    private static BaggageLogRecordProcessor SetupBaggageLogRecordProcessor(Predicate<string> baggageKeyPredicate)
+    {
+        return new BaggageLogRecordProcessor(baggageKey =>
+        {
+            try
+            {
+                return baggageKeyPredicate(baggageKey);
+            }
+            catch (Exception exception)
+            {
+                OpenTelemetryExtensionsEventSource.Log.BaggageKeyLogRecordPredicateException(baggageKey, exception.Message);
+                return false;
+            }
+        });
     }
 }

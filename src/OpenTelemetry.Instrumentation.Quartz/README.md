@@ -1,7 +1,13 @@
 # QuartzNET Instrumentation for OpenTelemetry .NET
 
-[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Quartz.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Quartz)
-[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Quartz.svg)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Quartz)
+| Status        |           |
+| ------------- |-----------|
+| Stability     |  [Beta](../../README.md#beta)|
+| Code Owners   |  [@maldago](https://github.com/maldago)|
+
+[![NuGet version badge](https://img.shields.io/nuget/v/OpenTelemetry.Instrumentation.Quartz)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Quartz)
+[![NuGet download count badge](https://img.shields.io/nuget/dt/OpenTelemetry.Instrumentation.Quartz)](https://www.nuget.org/packages/OpenTelemetry.Instrumentation.Quartz)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib/branch/main/graphs/badge.svg?flag=unittests-Instrumentation.Quartz)](https://app.codecov.io/gh/open-telemetry/opentelemetry-dotnet-contrib?flags[0]=unittests-Instrumentation.Quartz)
 
 Automatically instruments the Quartz jobs from
 [Quartz](https://www.nuget.org/packages/Quartz/).
@@ -11,7 +17,7 @@ Automatically instruments the Quartz jobs from
 QuartzNET Instrumentation is only supported when using .NET Framework >=
 `net472` and .NET Standard >= `netstandard2.0`. Quartz`net461` support for
 activity sources has been removed, more information can be found
-[here](https://www.quartz-scheduler.net/2021/04/07/quartznet-3-3-released/).
+[here](https://github.com/quartznet/quartznet/releases/tag/v3.3.0).
 
 ## Installation
 

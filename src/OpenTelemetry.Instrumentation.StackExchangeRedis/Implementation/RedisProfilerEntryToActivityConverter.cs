@@ -1,37 +1,28 @@
-// <copyright file="RedisProfilerEntryToActivityConverter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
+#if NET8_0_OR_GREATER
+using System.Net.Sockets;
+#endif
 using System.Reflection;
 using System.Reflection.Emit;
 using OpenTelemetry.Trace;
 using StackExchange.Redis.Profiling;
+#if NET
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+#endif
 
 namespace OpenTelemetry.Instrumentation.StackExchangeRedis.Implementation;
 
 internal static class RedisProfilerEntryToActivityConverter
 {
-    private static readonly Lazy<Func<object, (string, string)>> MessageDataGetter = new(() =>
+    private static readonly Lazy<Func<object, (string?, string?)>> MessageDataGetter = new(() =>
     {
-        var redisAssembly = typeof(IProfiledCommand).Assembly;
-        Type profiledCommandType = redisAssembly.GetType("StackExchange.Redis.Profiling.ProfiledCommand");
-        Type scriptMessageType = redisAssembly.GetType("StackExchange.Redis.RedisDatabase+ScriptEvalMessage");
+        var profiledCommandType = Type.GetType("StackExchange.Redis.Profiling.ProfiledCommand, StackExchange.Redis", throwOnError: true)!;
+        var scriptMessageType = Type.GetType("StackExchange.Redis.RedisDatabase+ScriptEvalMessage, StackExchange.Redis", throwOnError: true)!;
 
         var messageDelegate = CreateFieldGetter<object>(profiledCommandType, "Message", BindingFlags.NonPublic | BindingFlags.Instance);
         var scriptDelegate = CreateFieldGetter<string>(scriptMessageType, "script", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -39,10 +30,10 @@ internal static class RedisProfilerEntryToActivityConverter
 
         if (messageDelegate == null)
         {
-            return new Func<object, (string, string)>(source => (null, null));
+            return new Func<object, (string?, string?)>(source => (null, null));
         }
 
-        return new Func<object, (string, string)>(source =>
+        return new Func<object, (string?, string?)>(source =>
         {
             if (source == null)
             {
@@ -55,34 +46,44 @@ internal static class RedisProfilerEntryToActivityConverter
                 return (null, null);
             }
 
-            string script = null;
+            string? script = null;
             if (message.GetType() == scriptMessageType)
             {
-                script = scriptDelegate.Invoke(message);
+                script = scriptDelegate?.Invoke(message);
             }
 
-            if (commandAndKeyFetcher.TryFetch(message, out var value))
+            return GetCommandAndKey(commandAndKeyFetcher, message, out var value) ? (value, script) : (null, script);
+
+#if NET
+            [DynamicDependency("CommandAndKey", "StackExchange.Redis.Message", "StackExchange.Redis")]
+            [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The CommandAndKey property is preserved by the above DynamicDependency")]
+#endif
+            static bool GetCommandAndKey(
+                PropertyFetcher<string> commandAndKeyFetcher,
+                object message,
+#if NET
+                [NotNullWhen(true)]
+#endif
+                out string? value)
             {
-                return (value, script);
+                return commandAndKeyFetcher.TryFetch(message, out value);
             }
-
-            return (null, script);
         });
     });
 
-    public static Activity ProfilerCommandToActivity(Activity parentActivity, IProfiledCommand command, StackExchangeRedisCallsInstrumentationOptions options)
+    public static Activity? ProfilerCommandToActivity(Activity? parentActivity, IProfiledCommand command, StackExchangeRedisInstrumentationOptions options)
     {
         var name = command.Command; // Example: SET;
         if (string.IsNullOrEmpty(name))
         {
-            name = StackExchangeRedisCallsInstrumentation.ActivityName;
+            name = StackExchangeRedisConnectionInstrumentation.ActivityName;
         }
 
-        var activity = StackExchangeRedisCallsInstrumentation.ActivitySource.StartActivity(
+        var activity = StackExchangeRedisConnectionInstrumentation.ActivitySource.StartActivity(
             name,
             ActivityKind.Client,
             parentActivity?.Context ?? default,
-            StackExchangeRedisCallsInstrumentation.CreationTags,
+            StackExchangeRedisConnectionInstrumentation.CreationTags,
             startTime: command.CommandCreated);
 
         if (activity == null)
@@ -107,9 +108,7 @@ internal static class RedisProfilerEntryToActivityConverter
             // Total:
             // command.ElapsedTime;             // 00:00:32.4988020
 
-            activity.SetStatus(Status.Unset);
-
-            activity.SetTag(StackExchangeRedisCallsInstrumentation.RedisFlagsKeyName, command.Flags.ToString());
+            activity.SetTag(StackExchangeRedisConnectionInstrumentation.RedisFlagsKeyName, command.Flags.ToString());
 
             if (options.SetVerboseDatabaseStatements)
             {
@@ -139,21 +138,26 @@ internal static class RedisProfilerEntryToActivityConverter
             {
                 if (command.EndPoint is IPEndPoint ipEndPoint)
                 {
-                    activity.SetTag(SemanticConventions.AttributeNetPeerIp, ipEndPoint.Address.ToString());
-                    activity.SetTag(SemanticConventions.AttributeNetPeerPort, ipEndPoint.Port);
+                    activity.SetTag(SemanticConventions.AttributeServerAddress, ipEndPoint.Address.ToString());
+                    activity.SetTag(SemanticConventions.AttributeServerPort, ipEndPoint.Port);
+                    activity.SetTag(SemanticConventions.AttributeNetworkPeerAddress, ipEndPoint.Address.ToString());
+                    activity.SetTag(SemanticConventions.AttributeNetworkPeerPort, ipEndPoint.Port);
                 }
                 else if (command.EndPoint is DnsEndPoint dnsEndPoint)
                 {
-                    activity.SetTag(SemanticConventions.AttributeNetPeerName, dnsEndPoint.Host);
-                    activity.SetTag(SemanticConventions.AttributeNetPeerPort, dnsEndPoint.Port);
+                    activity.SetTag(SemanticConventions.AttributeServerAddress, dnsEndPoint.Host);
+                    activity.SetTag(SemanticConventions.AttributeServerPort, dnsEndPoint.Port);
                 }
-                else
+#if NET8_0_OR_GREATER
+                else if (command.EndPoint is UnixDomainSocketEndPoint unixDomainSocketEndPoint)
                 {
-                    activity.SetTag(SemanticConventions.AttributePeerService, command.EndPoint.ToString());
+                    activity.SetTag(SemanticConventions.AttributeServerAddress, unixDomainSocketEndPoint.ToString());
+                    activity.SetTag(SemanticConventions.AttributeNetworkPeerAddress, unixDomainSocketEndPoint.ToString());
                 }
+#endif
             }
 
-            activity.SetTag(StackExchangeRedisCallsInstrumentation.RedisDatabaseIndexKeyName, command.Db);
+            activity.SetTag(StackExchangeRedisConnectionInstrumentation.RedisDatabaseIndexKeyName, command.Db);
 
             // TODO: deal with the re-transmission
             // command.RetransmissionOf;
@@ -178,7 +182,7 @@ internal static class RedisProfilerEntryToActivityConverter
         return activity;
     }
 
-    public static void DrainSession(Activity parentActivity, IEnumerable<IProfiledCommand> sessionCommands, StackExchangeRedisCallsInstrumentationOptions options)
+    public static void DrainSession(Activity? parentActivity, IEnumerable<IProfiledCommand> sessionCommands, StackExchangeRedisInstrumentationOptions options)
     {
         foreach (var command in sessionCommands)
         {
@@ -190,20 +194,40 @@ internal static class RedisProfilerEntryToActivityConverter
     /// Creates getter for a field defined in private or internal type
     /// represented with classType variable.
     /// </summary>
-    private static Func<object, TField> CreateFieldGetter<TField>(Type classType, string fieldName, BindingFlags flags)
+    private static Func<object, TField?>? CreateFieldGetter<TField>(
+#if NET
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.NonPublicFields)]
+#endif
+        Type classType,
+        string fieldName,
+        BindingFlags flags)
     {
-        FieldInfo field = classType.GetField(fieldName, flags);
+        var field = classType.GetField(fieldName, flags);
         if (field != null)
         {
-            string methodName = classType.FullName + ".get_" + field.Name;
-            DynamicMethod getterMethod = new DynamicMethod(methodName, typeof(TField), new[] { typeof(object) }, true);
-            ILGenerator generator = getterMethod.GetILGenerator();
-            generator.Emit(OpCodes.Ldarg_0);
-            generator.Emit(OpCodes.Castclass, classType);
-            generator.Emit(OpCodes.Ldfld, field);
-            generator.Emit(OpCodes.Ret);
+#if NET
+            if (RuntimeFeature.IsDynamicCodeSupported)
+#endif
+            {
+                var methodName = classType.FullName + ".get_" + field.Name;
+#pragma warning disable IL3050 // Calling members annotated with 'RequiresDynamicCodeAttribute' may break functionality when AOT compiling.
+                // TODO: Remove the above disable when the AOT analyzer being used has the fix for https://github.com/dotnet/linker/issues/2715.
+                var getterMethod = new DynamicMethod(methodName, typeof(TField), [typeof(object)], true);
+#pragma warning restore IL3050
+                var generator = getterMethod.GetILGenerator();
+                generator.Emit(OpCodes.Ldarg_0);
+                generator.Emit(OpCodes.Castclass, classType);
+                generator.Emit(OpCodes.Ldfld, field);
+                generator.Emit(OpCodes.Ret);
 
-            return (Func<object, TField>)getterMethod.CreateDelegate(typeof(Func<object, TField>));
+                return (Func<object, TField>)getterMethod.CreateDelegate(typeof(Func<object, TField>));
+            }
+#if NET
+            else
+            {
+                return obj => (TField?)field.GetValue(obj);
+            }
+#endif
         }
 
         return null;

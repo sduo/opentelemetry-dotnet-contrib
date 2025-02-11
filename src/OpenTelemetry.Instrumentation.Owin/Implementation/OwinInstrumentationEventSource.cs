@@ -1,23 +1,9 @@
-// <copyright file="OwinInstrumentationEventSource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// </copyright>
+// SPDX-License-Identifier: Apache-2.0
 
-using System;
 using System.Diagnostics.Tracing;
-using System.Globalization;
-using System.Threading;
+using Microsoft.Extensions.Configuration;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Instrumentation.Owin;
 
@@ -25,7 +11,7 @@ namespace OpenTelemetry.Instrumentation.Owin;
 /// EventSource events emitted from the project.
 /// </summary>
 [EventSource(Name = "OpenTelemetry-Instrumentation-Owin")]
-internal sealed class OwinInstrumentationEventSource : EventSource
+internal sealed class OwinInstrumentationEventSource : EventSource, IConfigurationExtensionsLogger
 {
     public static OwinInstrumentationEventSource Log { get; } = new OwinInstrumentationEventSource();
 
@@ -34,7 +20,7 @@ internal sealed class OwinInstrumentationEventSource : EventSource
     {
         if (this.IsEnabled(EventLevel.Error, (EventKeywords)(-1)))
         {
-            this.RequestFilterException(ToInvariantString(ex));
+            this.RequestFilterException(ex.ToInvariantString());
         }
     }
 
@@ -55,7 +41,7 @@ internal sealed class OwinInstrumentationEventSource : EventSource
     {
         if (this.IsEnabled(EventLevel.Error, (EventKeywords)(-1)))
         {
-            this.EnrichmentException(ToInvariantString(exception));
+            this.EnrichmentException(exception.ToInvariantString());
         }
     }
 
@@ -65,23 +51,15 @@ internal sealed class OwinInstrumentationEventSource : EventSource
         this.WriteEvent(EventIds.EnrichmentException, exception);
     }
 
-    /// <summary>
-    /// Returns a culture-independent string representation of the given <paramref name="exception"/> object,
-    /// appropriate for diagnostics tracing.
-    /// </summary>
-    private static string ToInvariantString(Exception exception)
+    [Event(EventIds.InvalidConfigurationValue, Message = "Configuration key '{0}' has an invalid value: '{1}'", Level = EventLevel.Warning)]
+    public void InvalidConfigurationValue(string key, string value)
     {
-        var originalUICulture = Thread.CurrentThread.CurrentUICulture;
+        this.WriteEvent(EventIds.InvalidConfigurationValue, key, value);
+    }
 
-        try
-        {
-            Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-            return exception.ToString();
-        }
-        finally
-        {
-            Thread.CurrentThread.CurrentUICulture = originalUICulture;
-        }
+    void IConfigurationExtensionsLogger.LogInvalidConfigurationValue(string key, string value)
+    {
+        this.InvalidConfigurationValue(key, value);
     }
 
     private class EventIds
@@ -89,5 +67,6 @@ internal sealed class OwinInstrumentationEventSource : EventSource
         public const int RequestIsFilteredOut = 1;
         public const int RequestFilterException = 2;
         public const int EnrichmentException = 3;
+        public const int InvalidConfigurationValue = 4;
     }
 }

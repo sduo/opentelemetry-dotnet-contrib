@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+## 1.11.0-beta.1
+
+Released 2025-Jan-27
+
+* Updated OpenTelemetry core component version(s) to `1.11.1`.
+  ([#2477](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2477))
+
+## 1.10.0-beta.1
+
+Released 2024-Dec-09
+
+* `TelemetryHttpModule` will now pass the `url.path` tag (set to
+  [Request.Unvalidated.Path](https://learn.microsoft.com/dotnet/api/system.web.unvalidatedrequestvalues.path))
+  when starting `Activity` instances for incoming requests so that it is
+  available to samplers and may be used to influence the sampling decision made
+  by [custom
+  implementations](https://github.com/open-telemetry/opentelemetry-dotnet/tree/main/docs/trace/extending-the-sdk#sampler).
+  ([#1871](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1871))
+
+* Updated OpenTelemetry core component version(s) to `1.10.0`.
+  ([#2317](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/2317))
+
+## 1.9.0-beta.1
+
+Released 2024-Jun-18
+
+* Updated OpenTelemetry core component version(s) to `1.9.0`.
+  ([#1888](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1888))
+
+## 1.8.0-beta.1
+
+Released 2024-Apr-05
+
+* `Meter.Version` is set to NuGet package version.
+  ([#1624](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1624))
+
+* Update `OpenTelemetry.Api` to `1.8.0`.
+  ([#1635](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1635))
+
+## 1.7.0-beta.2
+
+Released 2024-Feb-07
+
+## 1.7.0-beta.1
+
+Released 2023-Dec-20
+
+* Update `OpenTelemetry.Api` to `1.7.0`.
+  ([#1486](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1486))
+
+## 1.6.0-beta.2
+
+Released 2023-Nov-06
+
+## 1.6.0-beta.1
+
+Released 2023-Oct-11
+
+* Fixed an issue where activities were stopped incorrectly before processing completed.
+  Activity processor's `OnEnd` will now happen after `AspNetInstrumentationOptions.Enrich`.
+  ([#1388](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1388))
+
+* Update `OpenTelemetry.Api` to `1.6.0`.
+  ([#1344](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1344))
+
+## 1.0.0-rc9.9
+
+Released 2023-Jun-09
+
+* Update `OpenTelemetry.Api` to `1.5.0`.
+  ([#1220](https://github.com/open-telemetry/opentelemetry-dotnet-contrib/pull/1220))
+
 ## 1.0.0-rc9.8
 
 Released 2023-Feb-27
